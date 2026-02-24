@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  IMAGE_NAME: ghcr.io/chenjiangbo/professor
   DEPLOY_PATH: /workspace/xipilabs/professor
   XIPI_EXTERNAL_NETWORK: xipi-network
 
