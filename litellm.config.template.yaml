@@ -1,0 +1,24 @@
+model_list:
+  - model_name: vertex-gemini-pro
+    litellm_params:
+      model: vertex_ai/${VERTEX_MODEL}
+      vertex_project: ${VERTEXAI_PROJECT}
+      vertex_location: ${VERTEXAI_LOCATION}
+  - model_name: gpt-4o
+    litellm_params:
+      model: gpt-4o
+      api_key: ${OPENAI_API_KEY}
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: gpt-4o-mini
+      api_key: ${OPENAI_API_KEY}
+  - model_name: ollama-qwen3-vl
+    litellm_params:
+      model: 'ollama/qwen3-vl:30b'
+      # 当 litellm 在容器内时使用 host.docker.internal 访问宿主机 Ollama；如果两者同容器网络，请改成 ollama:11434
+      api_base: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      api_key: 'dummy'
+      stream: true
+litellm_settings:
+  master_key: ${LLM_API_KEY:-changeme-proxy-key}
+  telemetry: false
