@@ -27,6 +27,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare build env file
+        run: cp .example.env .env
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
