@@ -10,6 +10,8 @@
 FROM node:alpine AS builder
 ARG TARGETARCH
 WORKDIR /app
+ENV NODE_OPTIONS=--max_old_space_size=2048
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 
 # build prerequisites for native deps (e.g., bufferutil) + npm 网络重试/镜像
