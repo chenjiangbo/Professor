@@ -1,6 +1,10 @@
 services:
   professor:
-    image: ${IMAGE:?IMAGE is required}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        IS_USED_SENTRY: 0
     container_name: professor
     restart: unless-stopped
     env_file:

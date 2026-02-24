@@ -11,66 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/chenjiangbo/professor
   DEPLOY_PATH: /workspace/xipilabs/professor
-  XIPI_EXTERNAL_NETWORK: xipi-network
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image_ref: ${{ steps.image.outputs.image_ref }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare build env file
-        run: cp .example.env .env
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push image
-        id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ env.IMAGE_NAME }}:${{ github.sha }}
-            ${{ env.IMAGE_NAME }}:latest
-
-      - name: Export image ref
-        id: image
-        run: echo "image_ref=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
   deploy:
-    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Upload compose file to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: 22
-          source: docker-compose.prod.yml
-          target: ${{ env.DEPLOY_PATH }}
-
-      - name: Deploy via SSH
+      - name: Deploy via SSH (build on server)
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -83,16 +30,18 @@ jobs:
             cd "${{ env.DEPLOY_PATH }}"
 
             if [ ! -f .env ]; then
-              echo "Missing ${{ env.DEPLOY_PATH }}/.env. Create it on server first." >&2
+              echo "Missing ${{ env.DEPLOY_PATH }}/.env. Create it first." >&2
               exit 1
             fi
 
-            cat > .deploy.env <<EOF
-            IMAGE=${{ needs.build-and-push.outputs.image_ref }}
-            XIPI_EXTERNAL_NETWORK=${{ env.XIPI_EXTERNAL_NETWORK }}
-            EOF
+            if [ ! -d .git ]; then
+              git clone --depth 1 https://github.com/${{ github.repository }} .
+            else
+              git fetch origin main
+              git checkout main
+              git pull --ff-only origin main
+            fi
 
-            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            docker compose --env-file .deploy.env -f docker-compose.prod.yml pull professor
-            docker compose --env-file .deploy.env -f docker-compose.prod.yml up -d professor
+            docker compose -f docker-compose.prod.yml build professor
+            docker compose -f docker-compose.prod.yml up -d professor
             docker image prune -f --filter "until=168h"
