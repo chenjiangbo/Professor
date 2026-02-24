@@ -1,0 +1,19 @@
+services:
+  professor:
+    image: ${IMAGE:?IMAGE is required}
+    container_name: professor
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - '8300:3000'
+    networks:
+      - xipi-network
+
+networks:
+  xipi-network:
+    external: true
+    name: ${XIPI_EXTERNAL_NETWORK:-xipi-network}
