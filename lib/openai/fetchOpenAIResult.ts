@@ -1,6 +1,6 @@
-import { Redis } from '@upstash/redis'
 import { createParser, ParsedEvent, ReconnectInterval } from 'eventsource-parser'
 import { trimOpenAiResult } from '~/lib/openai/trimOpenAiResult'
+import { redis } from '~/lib/redisClient'
 import { VideoConfig } from '~/lib/types'
 import { isDev } from '~/utils/env'
 import { getCacheId } from '~/utils/getCacheId'
@@ -32,11 +32,18 @@ export async function fetchOpenAIResult(payload: OpenAIStreamPayload, apiKey: st
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
-  isDev && console.log({ apiKey })
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const resolvedApiKey = apiKey || process.env.LLM_API_KEY || ''
+  const baseUrl = (process.env.LLM_BASE_URL_DEV || process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(
+    /\/+$/,
+    '',
+  )
+  const endpoint = `${baseUrl}/chat/completions`
+  isDev && console.log({ apiKey: resolvedApiKey ? '[hidden]' : 'missing', baseUrl })
+
+  const res = await fetch(endpoint, {
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey ?? ''}`,
+      Authorization: `Bearer ${resolvedApiKey}`,
     },
     method: 'POST',
     body: JSON.stringify(payload),
@@ -47,7 +54,6 @@ export async function fetchOpenAIResult(payload: OpenAIStreamPayload, apiKey: st
     throw new Error(`OpenAI API Error [${res.statusText}]: ${errorJson.error?.message}`)
   }
 
-  const redis = Redis.fromEnv()
   const cacheId = getCacheId(videoConfig)
 
   if (!payload.stream) {

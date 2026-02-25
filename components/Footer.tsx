@@ -27,7 +27,7 @@ export default function Footer() {
         </a>
       </div>
       <div className="flex items-center space-x-1">
-        <Link href="/privacy" className="group" aria-label="隐私声明">
+        <Link href="/privacy" className="group" aria-label="Privacy Statement">
           Privacy Statement
         </Link>
         <Link href="https://twitter.com/Jimmy_JingLv" className="group" aria-label="JimmyLv on Twitter">

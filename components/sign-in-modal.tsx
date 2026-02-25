@@ -27,17 +27,16 @@ const SignInModal = ({
           <a href={BASE_DOMAIN}>
             <Image src="/tv-logo.png" alt="Logo" className="h-10 w-10 rounded-full" width={20} height={20} />
           </a>
-          <h3 className="font-display text-2xl font-bold">登录 BibiGPT</h3>
+          <h3 className="font-display text-2xl font-bold">Sign in to BibiGPT</h3>
           <h4>
-            （每天都赠送 {LOGIN_LIMIT_COUNT} 次哦，
+            Daily free quota: {LOGIN_LIMIT_COUNT}. Need more?
             <a
               className="relative text-pink-400 hover:underline"
               href={CHECKOUT_URL}
               onClick={() => analytics.track('ShopLink Clicked')}
             >
-              点击购买
+              Purchase credits
             </a>
-            新的次数）
           </h4>
           <p className="text-sm text-pink-400">Input, Prompt, Output</p>
         </div>
@@ -49,10 +48,10 @@ const SignInModal = ({
             localization={{
               variables: {
                 sign_up: {
-                  social_provider_text: '使用 {{provider}} 注册',
+                  social_provider_text: 'Sign up with {{provider}}',
                 },
                 sign_in: {
-                  social_provider_text: '使用 {{provider}} 登录',
+                  social_provider_text: 'Sign in with {{provider}}',
                 },
               },
             }}
@@ -79,15 +78,15 @@ const SignInModal = ({
           />
         </div>
         <p className="pb-6 text-center text-slate-400">
-          点击登录或注册，即同意
-          <a href="/terms-of-use" target="_blank" className="group underline" aria-label="服务条款">
-            服务条款
-          </a>
-          和
-          <Link href="/privacy" target="_blank" className="group underline" aria-label="隐私声明">
-            隐私政策
+          By signing in you agree to our{' '}
+          <a href="/terms-of-use" target="_blank" className="group underline" aria-label="Terms of Service">
+            Terms of Service
+          </a>{' '}
+          and{' '}
+          <Link href="/privacy" target="_blank" className="group underline" aria-label="Privacy Policy">
+            Privacy Policy
           </Link>
-          。
+          .
         </p>
       </div>
     </Modal>

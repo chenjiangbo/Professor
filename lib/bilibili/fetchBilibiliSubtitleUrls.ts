@@ -1,4 +1,5 @@
 import { find, sample } from '~/utils/fp'
+import { getDecryptedBBDownCookie } from '~/lib/bbdown/auth'
 
 type BilibiliSubtitles = {
   lan: string
@@ -17,14 +18,25 @@ export const fetchBilibiliSubtitleUrls = async (
   videoId: string,
   pageNumber?: null | string,
 ): Promise<BilibiliVideoInfo> => {
-  const sessdata = sample(process.env.BILIBILI_SESSION_TOKEN?.split(','))
+  let cookie = ''
+  try {
+    cookie = (await getDecryptedBBDownCookie()) || ''
+  } catch {
+    cookie = ''
+  }
+
+  if (!cookie) {
+    const sessdata = sample(process.env.BILIBILI_SESSION_TOKEN?.split(','))
+    if (sessdata) cookie = `SESSDATA=${sessdata}`
+  }
+
   const headers = {
     Accept: 'application/json',
     'Content-Type': 'application/json',
     'User-Agent':
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
     Host: 'api.bilibili.com',
-    Cookie: `SESSDATA=${sessdata}`,
+    ...(cookie ? { Cookie: cookie } : {}),
   }
   const commonConfig: RequestInit = {
     method: 'GET',
@@ -44,13 +56,23 @@ export const fetchBilibiliSubtitleUrls = async (
     const { aid, pages } = json?.data || {}
     const { cid } = find(pages, { page: Number(pageNumber || 1) }) || {}
 
+    // 如果找不到 cid，直接返回基本信息（可能是合集但不在 pages 里）
+    if (!cid) {
+      return json.data
+    }
+
     // https://api.bilibili.com/x/player/v2?aid=865462240&cid=1035524244
     const pageUrl = `https://api.bilibili.com/x/player/v2?aid=${aid}&cid=${cid}`
     const res = await fetch(pageUrl, commonConfig)
     const j = await res.json()
 
+    const subtitleList = j?.data?.subtitle?.subtitles
+    if (!subtitleList || subtitleList.length === 0) {
+      return json.data
+    }
+
     // r.data.subtitle.subtitles
-    return { ...json.data, subtitle: { list: j.data.subtitle.subtitles } }
+    return { ...json.data, subtitle: { list: subtitleList } }
   }
 
   // return json.data.View;

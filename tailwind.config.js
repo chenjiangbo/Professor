@@ -12,8 +12,21 @@ module.exports = {
   ],
   theme: {
     extend: {
+      colors: {
+        primary: '#135bec',
+        accent: '#F0B90B',
+        success: '#16C784',
+        'text-main': '#0B1426',
+        'text-muted': '#6B7280',
+        surface: '#F8FAFC',
+        card: '#FFFFFF',
+        'border-strong': '#E5E7EB',
+        'background-light': '#f6f6f8',
+        'background-dark': '#101622',
+      },
       fontFamily: {
-        sans: ['var(--font-sans)', ...fontFamily.sans],
+        sans: ['var(--font-display)', ...fontFamily.sans],
+        display: ['var(--font-display)', ...fontFamily.sans],
       },
       keyframes: {
         'accordion-down': {

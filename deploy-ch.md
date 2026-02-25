@@ -9,8 +9,7 @@ nodejs 18.0 +
 3. 复制 [.example.env](.example.env) 到同级目录，并将其改名为 `.env`
 4. 填写 `.env` 文件中所有的必填项 （也就是除了 Optional 下的所有内容）
    1. 在 https://platform.openai.com/account/api-keys 生成 key，复制它并赋值到 OPENAI_API_KEY
-   2. 在 https://www.bilibili.com 中使用 F12 打开开发者控制台，导航至 application -> Cookies -> ...www.bilibili.com -> **SESSDATA**，复制该值并赋值到 `BILIBILI_SESSION_TOKEN`
-      ![img_1.png](public/deploy-ch/img_1.png)
+   2. 设置 `CREDENTIAL_ENCRYPTION_KEY`（建议 32 位以上随机字符串，并长期固定，不要频繁改）
    3. 在 https://savesubs.com 中使用 F12 打开开发者控制台，导航至 application -> Cookies -> ...savesubs.com -> **cf_clearance**，复制该值并赋值到 `SAVESUBS_X_AUTH_TOKEN`
    4. 登录 https://upstash.com，在 `Create a Redis Database` 页下点击 `Create database`
       ![img_3.jpg](public/deploy-ch/img_3.jpg)
@@ -24,3 +23,7 @@ nodejs 18.0 +
       ![img_7.png](public%2Fdeploy-ch%2Fimg_7.png)
 5. 使用 `#` 注释掉 Optional 下的所有项 （可选）
 6. 运行 `npm run dev`
+7. 打开系统设置页 `/settings`，在 **Bilibili / BBDown Login** 区域手动粘贴 SESSDATA（或完整 Cookie）并点击 `Save`
+8. 点击 `Validate` 校验登录态，显示 `valid` 后即可稳定下载字幕
+
+> 说明：`BILIBILI_SESSION_TOKEN` 仅保留为旧逻辑兼容项，推荐始终使用 `/settings` 的持久化配置方式。

@@ -1,10 +1,11 @@
-import { Inter as FontSans } from '@next/font/google'
-import { createBrowserSupabaseClient, Session } from '@supabase/auth-helpers-nextjs'
-import { SessionContextProvider } from '@supabase/auth-helpers-react'
+import { Lexend } from '@next/font/google'
+// Auth 相关依赖暂未使用，避免强制要求 Supabase 环境变量
+// import { createBrowserSupabaseClient, Session } from '@supabase/auth-helpers-nextjs'
+// import { SessionContextProvider } from '@supabase/auth-helpers-react'
 import { Analytics } from '@vercel/analytics/react'
-import { ThemeProvider } from 'next-themes'
+import { ThemeProvider, useTheme } from 'next-themes'
 import type { AppProps } from 'next/app'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import CommandMenu from '~/components/CommandMenu'
 import { AnalyticsProvider } from '~/components/context/analytics'
 import { useSignInModal } from '~/components/sign-in-modal'
@@ -12,46 +13,61 @@ import { TailwindIndicator } from '~/components/tailwind-indicator'
 import { Toaster } from '~/components/ui/toaster'
 import { TooltipProvider } from '~/components/ui/tooltip'
 import { cn } from '~/lib/utils'
-import Footer from '../components/Footer'
-import Header from '../components/Header'
 import '../styles/globals.css'
 import '../styles/markdown.css'
 
-const fontSans = FontSans({
+const fontDisplay = Lexend({
   subsets: ['latin'],
-  variable: '--font-sans',
+  variable: '--font-display',
   display: 'swap',
 })
 function MyApp({
   Component,
   pageProps,
 }: AppProps<{
-  initialSession: Session
+  initialSession: any
 }>) {
-  // Create a new supabase browser client on every first render.
-  const [supabaseClient] = useState(() => createBrowserSupabaseClient())
   const { SignInModal, setShowSignInModal: showSingIn } = useSignInModal()
+
+  // 强制同步 html class/data-theme，防止切换不生效
+  const ThemeSync = () => {
+    const { theme, resolvedTheme } = useTheme()
+    useEffect(() => {
+      const active = theme === 'system' ? resolvedTheme : theme
+      if (active === 'dark') {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+      if (active) {
+        document.documentElement.setAttribute('data-theme', active)
+      }
+    }, [theme, resolvedTheme])
+    return null
+  }
 
   return (
     <AnalyticsProvider>
-      <SessionContextProvider supabaseClient={supabaseClient} initialSession={pageProps.initialSession}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TooltipProvider>
-            <div className={cn('mx-auto flex min-h-screen flex-col justify-center font-sans', fontSans.variable)}>
-              <Header showSingIn={showSingIn} />
-              <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center bg-white text-slate-900 antialiased dark:bg-slate-900 dark:text-slate-50">
-                <Component {...pageProps} showSingIn={showSingIn} />
-                <Analytics />
-                <CommandMenu />
-              </main>
-              <Footer />
-            </div>
-            <TailwindIndicator />
-            <Toaster />
-            <SignInModal />
-          </TooltipProvider>
-        </ThemeProvider>
-      </SessionContextProvider>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+        <TooltipProvider>
+          <div
+            className={cn(
+              'min-h-screen bg-surface font-display text-text-main dark:bg-background-dark dark:text-white',
+              fontDisplay.variable,
+            )}
+          >
+            <main className="min-h-screen">
+              <Component {...pageProps} showSingIn={showSingIn} />
+            </main>
+            <ThemeSync />
+            <Analytics />
+            <CommandMenu />
+          </div>
+          <TailwindIndicator />
+          <Toaster />
+          <SignInModal />
+        </TooltipProvider>
+      </ThemeProvider>
     </AnalyticsProvider>
   )
 }

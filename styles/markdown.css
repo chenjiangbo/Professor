@@ -94,6 +94,23 @@
   }
 }
 
+.dark .markdown-body,
+html.dark .markdown-body {
+  color-scheme: dark;
+  --color-fg-default: #c9d1d9;
+  --color-fg-muted: #8b949e;
+  --color-fg-subtle: #6e7681;
+  --color-canvas-default: transparent;
+  --color-canvas-subtle: rgba(255, 255, 255, 0.04);
+  --color-border-default: rgba(255, 255, 255, 0.16);
+  --color-border-muted: rgba(255, 255, 255, 0.12);
+  --color-neutral-muted: rgba(255, 255, 255, 0.08);
+  --color-accent-fg: #7aa2ff;
+  --color-accent-emphasis: #7aa2ff;
+  --color-attention-subtle: rgba(245, 158, 11, 0.18);
+  --color-danger-fg: #f87171;
+}
+
 .markdown-body {
   -ms-text-size-adjust: 100%;
   -webkit-text-size-adjust: 100%;

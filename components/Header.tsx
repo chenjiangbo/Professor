@@ -18,7 +18,7 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
           </a>
           <a href={BASE_DOMAIN}>
             <h2 className={clsx('text-lg sm:text-2xl', poppins.className)}>
-              <span className="text-pink-400">哔哔终结者</span> BibiGPT
+              <span className="text-pink-400">Bibi Terminator</span> BibiGPT
             </h2>
           </a>
           <div
@@ -30,7 +30,7 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
               href="/release"
               target="_blank"
             >
-              <strong className="font-semibold">更新日志 v1.5.1</strong>
+              <strong className="font-semibold">Changelog v1.5.1</strong>
               <svg
                 width="2"
                 height="2"
@@ -41,7 +41,7 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
                 <circle cx="1" cy="1" r="1"></circle>
               </svg>
               <span className="ml-2 hidden min-[1372px]:inline">
-                开源项目，开发者日记 · 支持 B 站各类型链接 & 自定义输出结果 🎉
+                Open source · Supports Bilibili & YouTube links with custom outputs 🎉
               </span>
               <svg
                 width="3"
@@ -70,27 +70,27 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
                 target="_blank"
                 className="flex items-center space-x-2"
               >
-                🔥<span className="hidden pl-1 sm:block">提</span>反馈
+                🔥<span className="hidden pl-1 sm:block">Send</span> feedback
               </a>
             </TooltipTrigger>
-            <TooltipContent>那可太感谢啦！</TooltipContent>
+            <TooltipContent>Thanks a lot!</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger>
               <a
-                href="javascript:(function(){if (window.location.hostname.includes('bilibili.com') || window.location.hostname.includes('youtube.com')) {window.open(location.href.replace('.com', '.jimmylv.cn'), '_blank');} else {alert('🔖请进入B站或YouTube视频页面，再来点击书签哦！');}}())"
+                href="javascript:(function(){if (window.location.hostname.includes('bilibili.com') || window.location.hostname.includes('youtube.com')) {window.open(location.href.replace('.com', '.jimmylv.cn'), '_blank');} else {alert('🔖Open a Bilibili or YouTube video page, then click the bookmark.');}}())"
                 rel="noreferrer noopener"
                 target="_blank"
                 className="flex hidden items-center space-x-2 sm:block"
-                aria-label="书签版"
-                onClick={() => alert('🔖请拖至书签栏，进入B站或YouTube视频页面，再来点击书签哦！')}
+                aria-label="Bookmark"
+                onClick={() => alert('🔖 Drag this to bookmarks, open a Bilibili/YouTube video page, then click it!')}
               >
                 🔖
-                <span className="relin-paragraph-target pl-1 text-slate-500">(书签版)</span>
+                <span className="relin-paragraph-target pl-1 text-slate-500">(Bookmark)</span>
               </a>
             </TooltipTrigger>
             <TooltipContent>
-              <p>🔖请拖至书签栏，进入B站视频页面再点击书签哦！</p>
+              <p>🔖 Drag to bookmarks, open a Bilibili video page and click!</p>
             </TooltipContent>
           </Tooltip>
           <a
@@ -98,10 +98,10 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
             rel="noreferrer noopener"
             target="_blank"
             className="flex items-center space-x-2"
-            aria-label="iOS版"
+            aria-label="iOS Shortcut"
           >
             <Image src="/shortcuts.png" alt="logo" width={33} height={33} className="max-w-none" />
-            <span className="relin-paragraph-target hidden text-slate-500 sm:block">(iOS版)</span>
+            <span className="relin-paragraph-target hidden text-slate-500 sm:block">(iOS)</span>
           </a>
           <a href="https://github.com/JimmyLv/BibiGPT" rel="noreferrer noopener" target="_blank" className="">
             <Github width="33" height="33" />

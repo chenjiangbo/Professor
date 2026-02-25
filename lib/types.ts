@@ -1,27 +1,17 @@
-import { VideoConfigSchema } from '~/utils/schemas/video'
-
-export type SummarizeParams = {
-  videoConfig: VideoConfig
-  userConfig: UserConfig
-}
-export type UserConfig = {
-  userKey?: string
-  shouldShowTimestamp?: boolean
-}
 export type VideoConfig = {
   videoId: string
-  service?: VideoService
+  service?: VideoService.Bilibili
   pageNumber?: null | string
-} & VideoConfigSchema
+  showTimestamp?: boolean
+  showEmoji?: boolean
+  outputLanguage?: string
+  detailLevel?: number
+  sentenceNumber?: number
+  outlineLevel?: number
+}
 
 export enum VideoService {
   Bilibili = 'bilibili',
-  Youtube = 'youtube',
-  // todo: integrate with whisper API
-  Podcast = 'podcast',
-  Meeting = 'meeting',
-  LocalVideo = 'local-video',
-  LocalAudio = 'local-audio',
 }
 
 export type CommonSubtitleItem = {

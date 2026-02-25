@@ -2,6 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-::selection {
-  background: #fc8bab;
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    @apply bg-surface;
+  }
+
+  body {
+    @apply min-h-screen bg-surface text-text-main antialiased;
+  }
+
+  /* 支持 html 或任意祖先挂载 .dark（next-themes 默认加在 html） */
+  .dark {
+    color-scheme: dark;
+  }
+
+  html.dark,
+  .dark html {
+    @apply bg-background-dark;
+  }
+
+  .dark body,
+  html.dark body {
+    @apply bg-background-dark text-white;
+  }
+
+  ::selection {
+    background: #fc8bab;
+  }
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }

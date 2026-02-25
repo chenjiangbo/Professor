@@ -7,7 +7,7 @@ export function SwitchTimestamp(props: { checked: undefined | boolean; onChecked
     <div className="flex items-center justify-end space-x-2">
       <Switch id="timestamp-mode" checked={props.checked} onCheckedChange={props.onCheckedChange} />
       <Label htmlFor="timestamp-mode">
-        是否显示时间戳 <span className="text-gray-500">(beta)</span>
+        Show timestamps <span className="text-gray-500">(beta)</span>
       </Label>
     </div>
   )

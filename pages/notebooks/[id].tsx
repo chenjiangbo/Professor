@@ -14,6 +14,8 @@ type Video = {
   duration?: string
   status: string
   summary?: string
+  last_error?: string
+  transcript?: string
   chapters?: Array<{ title: string; time?: string; summary?: string }>
 }
 
@@ -50,10 +52,14 @@ type ImportBatchItem = {
 }
 
 type ImportExpandMode = 'current' | 'all'
-type MainTab = 'learn' | 'notes'
-type QAScope = 'current' | 'selected' | 'all'
+type InterpretationMode = 'concise' | 'detailed'
+type MainTab = 'learn' | 'subtitle' | 'notes'
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 function getVideoStatusMeta(status: string) {
   if (status === 'ready') return { label: 'Ready', color: 'text-green-500', pill: 'bg-green-500/15 text-green-300' }
@@ -105,15 +111,21 @@ const NotebookDetail: NextPage = () => {
   const [importError, setImportError] = useState('')
   const [lastBatchId, setLastBatchId] = useState<string>('')
   const [expandMode, setExpandMode] = useState<ImportExpandMode>('current')
+  const [importInterpretationMode, setImportInterpretationMode] = useState<InterpretationMode>('concise')
 
   const [selected, setSelected] = useState<string[]>([])
   const [loadingImport, setLoadingImport] = useState(false)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState<MainTab>('learn')
   const [activeVideoId, setActiveVideoId] = useState<string>('')
-  const [qaScope, setQaScope] = useState<QAScope>('current')
+  const [subtitleSearch, setSubtitleSearch] = useState<string>('')
+  const [showAssistantPanel, setShowAssistantPanel] = useState(true)
+  const [reimportingVideoId, setReimportingVideoId] = useState<string>('')
 
-  const { data: initialHistory } = useSWR<ChatMessage[]>(id ? `/api/notebooks/${id}/chats` : null, fetcher)
+  const { data: initialHistory = [] } = useSWR<ChatMessage[]>(
+    id && activeVideoId ? `/api/notebooks/${id}/chats?videoId=${encodeURIComponent(activeVideoId)}` : null,
+    fetcher,
+  )
   const [input, setInput] = useState('')
   const { data: batchSummary } = useSWR<ImportBatchSummary>(
     lastBatchId ? `/api/import-batches/${lastBatchId}` : null,
@@ -124,6 +136,10 @@ const NotebookDetail: NextPage = () => {
     lastBatchId ? `/api/import-batches/${lastBatchId}/items` : null,
     fetcher,
     { refreshInterval: 2500 },
+  )
+  const { data: defaultInterpretationModeData } = useSWR<{ mode: InterpretationMode }>(
+    '/api/settings/interpretation-mode',
+    fetcher,
   )
   const shouldShowBatchPanel = Boolean(
     batchSummary && (batchSummary.stats.processing > 0 || batchSummary.stats.failed > 0),
@@ -140,12 +156,16 @@ const NotebookDetail: NextPage = () => {
 
   const { messages, sendMessage, status, setMessages } = chatHelpers
   const isChatLoading = status === 'streaming' || status === 'submitted'
+  const historySyncKeyRef = useRef<string>('')
 
   useEffect(() => {
-    if (initialHistory && messages.length === 0) {
-      setMessages(initialHistory)
-    }
-  }, [initialHistory])
+    const history = initialHistory || []
+    const signature = history.map((m: any) => `${m.id}:${m.created_at}`).join('|')
+    const syncKey = `${activeVideoId}::${signature}`
+    if (historySyncKeyRef.current === syncKey) return
+    historySyncKeyRef.current = syncKey
+    setMessages(history as any)
+  }, [initialHistory, activeVideoId])
 
   useEffect(() => {
     if (!videos.length) {
@@ -157,6 +177,13 @@ const NotebookDetail: NextPage = () => {
     }
   }, [videos, activeVideoId])
 
+  useEffect(() => {
+    const mode = defaultInterpretationModeData?.mode
+    if (mode === 'detailed' || mode === 'concise') {
+      setImportInterpretationMode(mode)
+    }
+  }, [defaultInterpretationModeData?.mode])
+
   const filteredVideos = useMemo(
     () => videos.filter((v) => v.title.toLowerCase().includes(search.toLowerCase())),
     [videos, search],
@@ -164,18 +191,37 @@ const NotebookDetail: NextPage = () => {
 
   const activeVideo = useMemo(() => videos.find((v) => v.id === activeVideoId) || null, [videos, activeVideoId])
 
-  const chatVideoIds = useMemo(() => {
-    if (!videos.length) return []
-    if (qaScope === 'selected' && selected.length > 0) return selected
-    if (qaScope === 'all') return videos.map((v) => v.id)
-    if (activeVideoId) return [activeVideoId]
-    return videos.map((v) => v.id)
-  }, [qaScope, selected, videos, activeVideoId])
+  const chatVideoIds = useMemo(() => (activeVideoId ? [activeVideoId] : []), [activeVideoId])
+  const transcriptLines = useMemo(
+    () =>
+      String(activeVideo?.transcript || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean),
+    [activeVideo?.transcript],
+  )
+
+  const subtitleMatchedIndexes = useMemo(() => {
+    const q = subtitleSearch.trim().toLowerCase()
+    if (!q) return []
+    const matches: number[] = []
+    transcriptLines.forEach((line, idx) => {
+      if (line.toLowerCase().includes(q)) matches.push(idx)
+    })
+    return matches
+  }, [subtitleSearch, transcriptLines])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, isChatLoading])
+
+  useEffect(() => {
+    if (activeTab !== 'subtitle') return
+    if (!subtitleMatchedIndexes.length) return
+    const firstId = `subtitle-line-${subtitleMatchedIndexes[0]}`
+    document.getElementById(firstId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [activeTab, subtitleMatchedIndexes.join(',')])
 
   const toggleSelect = (vid: string) => {
     setSelected((prev) => (prev.includes(vid) ? prev.filter((i) => i !== vid) : [...prev, vid]))
@@ -199,7 +245,12 @@ const NotebookDetail: NextPage = () => {
       const res = await fetch('/api/videos/import-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notebookId: id, urls: urlInput, expandMode }),
+        body: JSON.stringify({
+          notebookId: id,
+          urls: urlInput,
+          expandMode,
+          interpretationMode: importInterpretationMode,
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
@@ -217,7 +268,7 @@ const NotebookDetail: NextPage = () => {
   const handleAsk = async (e?: React.FormEvent) => {
     e?.preventDefault()
     const text = input.trim()
-    if (!text || !id) return
+    if (!text || !id || !activeVideoId) return
     setInput('')
     await sendMessage(
       { text },
@@ -230,14 +281,23 @@ const NotebookDetail: NextPage = () => {
     )
   }
 
-  const handleRegenerateCurrent = async () => {
+  const handleReimportCurrent = async () => {
     if (!activeVideoId) return
-    await fetch(`/api/videos/${activeVideoId}/summarize`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ outputLanguage: 'Chinese' }),
-    })
-    mutate()
+    setReimportingVideoId(activeVideoId)
+    try {
+      const res = await fetch(`/api/videos/${activeVideoId}/reimport`, {
+        method: 'POST',
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error || `Re-import failed (${res.status})`)
+      }
+      mutate()
+    } catch (e: any) {
+      alert(e?.message || 'Re-import failed')
+    } finally {
+      setReimportingVideoId('')
+    }
   }
 
   const renderProcessingPanel = (video: Video) => {
@@ -324,10 +384,11 @@ const NotebookDetail: NextPage = () => {
           <h2 className="text-2xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
           <p className="mt-3 text-red-300">{activeVideo.summary || 'Processing failed.'}</p>
           <button
-            onClick={handleRegenerateCurrent}
-            className="mt-6 w-fit rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-200 hover:bg-red-500/30"
+            onClick={handleReimportCurrent}
+            disabled={reimportingVideoId === activeVideo.id}
+            className="mt-6 w-fit rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-200 hover:bg-red-500/30 disabled:opacity-60"
           >
-            Retry Generate
+            {reimportingVideoId === activeVideo.id ? 'Re-importing...' : 'Re-import Video'}
           </button>
         </div>
       )
@@ -342,29 +403,49 @@ const NotebookDetail: NextPage = () => {
       <div className="grid h-full grid-cols-12 gap-4 overflow-hidden">
         <div className="col-span-12 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36] lg:col-span-10">
           <div className="mb-5">
-            <h2 className="text-2xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
-            <div className="markdown-body mt-2 text-sm leading-6">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-2xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
+              <button
+                onClick={handleReimportCurrent}
+                disabled={reimportingVideoId === activeVideo.id || isProcessing(activeVideo.status)}
+                className="dark:border-white/15 shrink-0 rounded-md border border-border-strong bg-black/5 px-3 py-1.5 text-xs text-text-main hover:border-blue-400/50 hover:bg-blue-500/10 disabled:opacity-60 dark:bg-white/5 dark:text-white/90"
+              >
+                {reimportingVideoId === activeVideo.id ? 'Re-importing...' : 'Re-import'}
+              </button>
+            </div>
+            <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
               <Markdown>{activeVideo.summary || 'No summary yet.'}</Markdown>
             </div>
           </div>
 
           <div className="space-y-4">
             {chapters.length === 0 ? (
-              <p className="text-text-muted dark:text-white/50">No chapters available yet.</p>
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
+                <p className="font-semibold">No chapters available yet.</p>
+                <p className="mt-1 text-xs opacity-90">
+                  {activeVideo.last_error
+                    ? `Reason: ${activeVideo.last_error}`
+                    : 'Reason is not available yet. The model may still be processing or returned an invalid outline format.'}
+                </p>
+                <p className="mt-2 text-xs opacity-90">
+                  You can click <span className="font-semibold">Re-import</span> above to rerun subtitle download and
+                  interpretation.
+                </p>
+              </div>
             ) : (
               chapters.map((chapter, idx) => (
                 <section
                   key={idx}
                   id={`chapter-${idx}`}
-                  className="rounded-lg border border-border-strong bg-black/5 p-4 dark:border-white/10 dark:bg-white/5"
+                  className="dark:border-white/15 rounded-lg border border-slate-300/80 bg-white p-5 shadow-sm dark:bg-[#0f1a35]"
                 >
-                  <h3 className="text-lg font-semibold text-text-main dark:text-white">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                     {idx + 1}. {chapter.title}
                     {chapter.time ? (
-                      <span className="ml-2 text-xs text-text-muted dark:text-white/50">{chapter.time}</span>
+                      <span className="ml-2 text-xs text-slate-500 dark:text-slate-300/70">{chapter.time}</span>
                     ) : null}
                   </h3>
-                  <div className="markdown-body mt-2 text-sm leading-6">
+                  <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
                     <Markdown>{chapter.summary || ''}</Markdown>
                   </div>
                 </section>
@@ -374,9 +455,9 @@ const NotebookDetail: NextPage = () => {
         </div>
 
         <aside className="col-span-12 flex flex-col gap-3 overflow-y-auto rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] lg:col-span-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">Outline</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">Outline</h3>
           {chapters.length === 0 ? (
-            <p className="text-xs text-text-muted dark:text-white/50">No outline yet.</p>
+            <p className="text-xs text-slate-600 dark:text-slate-300/80">No outline yet.</p>
           ) : (
             chapters.map((chapter, idx) => (
               <button
@@ -384,14 +465,98 @@ const NotebookDetail: NextPage = () => {
                 onClick={() =>
                   document.getElementById(`chapter-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                 }
-                className="dark:text-white/85 rounded-md border border-border-strong bg-black/5 px-3 py-2 text-left text-sm text-text-main hover:border-blue-400/50 hover:bg-blue-500/10 dark:border-white/10 dark:bg-white/5"
+                className="dark:border-white/15 rounded-md border border-slate-300/80 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:border-blue-400/50 hover:bg-blue-500/10 dark:bg-white/10 dark:text-slate-100"
               >
-                <div className="text-xs text-text-muted dark:text-white/50">Chapter {idx + 1}</div>
-                <div className="line-clamp-2 mt-1">{chapter.title}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300/75">Chapter {idx + 1}</div>
+                <div className="line-clamp-2 mt-1 text-slate-900 dark:text-slate-100">{chapter.title}</div>
               </button>
             ))
           )}
         </aside>
+      </div>
+    )
+  }
+
+  const highlightSubtitleLine = (line: string, query: string) => {
+    const q = query.trim()
+    if (!q) return line
+    const regex = new RegExp(`(${escapeRegExp(q)})`, 'ig')
+    const parts = line.split(regex)
+    return parts.map((part, idx) =>
+      part.toLowerCase() === q.toLowerCase() ? (
+        <mark key={idx} className="rounded bg-yellow-300/80 px-0.5 text-black">
+          {part}
+        </mark>
+      ) : (
+        <span key={idx}>{part}</span>
+      ),
+    )
+  }
+
+  const renderSubtitlePanel = () => {
+    if (!activeVideo) {
+      return (
+        <div className="flex h-full items-center justify-center rounded-xl border border-border-strong bg-card text-text-muted dark:border-white/10 dark:bg-[#131b36] dark:text-white/60">
+          Select a video to view subtitles.
+        </div>
+      )
+    }
+
+    if (!activeVideo.transcript) {
+      return (
+        <div className="flex h-full flex-col rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36]">
+          <h2 className="text-xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
+          <p className="mt-2 text-sm text-text-muted dark:text-white/60">
+            Source subtitles are not available yet. You can re-import this video after subtitle download finishes.
+          </p>
+        </div>
+      )
+    }
+
+    const q = subtitleSearch.trim()
+    const matchCount = subtitleMatchedIndexes.length
+
+    return (
+      <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36]">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="truncate text-lg font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
+          <div className="text-xs text-text-muted dark:text-white/60">
+            Lines: {transcriptLines.length}
+            {q ? ` · Matches: ${matchCount}` : ''}
+          </div>
+        </div>
+
+        <div className="mb-3 flex h-10 w-full items-center rounded-lg border border-border-strong bg-white px-3 dark:border-white/20 dark:bg-black/20">
+          <span className="material-symbols-outlined mr-2 !text-[20px] text-text-muted dark:text-[#9da6b9]">
+            search
+          </span>
+          <input
+            className="flex-1 bg-transparent text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:text-white dark:placeholder:text-white/40"
+            placeholder="Search subtitle text"
+            value={subtitleSearch}
+            onChange={(e) => setSubtitleSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-lg border border-border-strong bg-black/5 p-3 dark:border-white/10 dark:bg-white/5">
+          {transcriptLines.map((line, idx) => {
+            const matched = q && line.toLowerCase().includes(q.toLowerCase())
+            return (
+              <div
+                key={idx}
+                id={`subtitle-line-${idx}`}
+                className={`grid grid-cols-[56px_1fr] gap-3 rounded px-2 py-1 text-sm ${
+                  matched ? 'bg-yellow-400/15' : ''
+                }`}
+              >
+                <span className="text-xs text-text-muted dark:text-white/50">#{idx + 1}</span>
+                <div className="whitespace-pre-wrap break-words text-text-main dark:text-white/90">
+                  {highlightSubtitleLine(line, subtitleSearch)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -454,6 +619,9 @@ const NotebookDetail: NextPage = () => {
                     setImportError('')
                     setUrlInput('')
                     setExpandMode('current')
+                    setImportInterpretationMode(
+                      defaultInterpretationModeData?.mode === 'detailed' ? 'detailed' : 'concise',
+                    )
                   }}
                   className="rounded bg-accent px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/90 dark:bg-primary dark:text-white"
                 >
@@ -534,7 +702,16 @@ const NotebookDetail: NextPage = () => {
 
           <div className="col-span-12 flex h-full flex-col overflow-hidden lg:col-span-9">
             <div className="mb-3 flex shrink-0 items-center justify-between">
-              <h1 className="text-2xl font-bold text-text-main dark:text-white">{notebook?.title || 'Notebook'}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-text-main dark:text-white">{notebook?.title || 'Notebook'}</h1>
+                <button
+                  onClick={() => setShowAssistantPanel((v) => !v)}
+                  className="dark:border-white/15 rounded-full border border-border-strong bg-black/5 px-3 py-1.5 text-xs text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/70 dark:hover:text-white"
+                >
+                  {showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                </button>
+                <span className="dark:text-white/55 text-xs text-text-muted">看不懂或想深入，可继续提问</span>
+              </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
                   onClick={() => setActiveTab('learn')}
@@ -555,6 +732,16 @@ const NotebookDetail: NextPage = () => {
                   }`}
                 >
                   Notes
+                </button>
+                <button
+                  onClick={() => setActiveTab('subtitle')}
+                  className={`rounded-full px-3 py-1.5 ${
+                    activeTab === 'subtitle'
+                      ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
+                      : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
+                  }`}
+                >
+                  Subtitle
                 </button>
               </div>
             </div>
@@ -590,6 +777,8 @@ const NotebookDetail: NextPage = () => {
 
             {activeTab === 'learn' ? (
               <div className="min-h-0 flex-1 overflow-hidden">{renderLearnPanel()}</div>
+            ) : activeTab === 'subtitle' ? (
+              <div className="min-h-0 flex-1 overflow-hidden">{renderSubtitlePanel()}</div>
             ) : (
               <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
                 <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
@@ -600,84 +789,74 @@ const NotebookDetail: NextPage = () => {
               </div>
             )}
 
-            <div className="mt-4 shrink-0 rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36]">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-text-main dark:text-white">Ask Follow-up Questions</p>
-                <div className="flex gap-1 text-xs">
-                  {[
-                    { key: 'current', label: 'Current' },
-                    { key: 'selected', label: `Selected (${selected.length})` },
-                    { key: 'all', label: `All (${videos.length})` },
-                  ].map((s: any) => (
-                    <button
-                      key={s.key}
-                      onClick={() => setQaScope(s.key)}
-                      className={`rounded px-2 py-1 ${
-                        qaScope === s.key
-                          ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
-                          : 'bg-black/5 text-text-muted dark:bg-white/5 dark:text-white/60'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="max-h-48 space-y-3 overflow-y-auto pr-1">
-                {messages.length > 0 ? (
-                  messages.map((msg: any) => (
-                    <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div
-                        className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
-                          msg.role === 'user'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-black/5 text-text-main dark:bg-white/5 dark:text-white/90'
-                        }`}
-                      >
-                        {(
-                          msg.parts
-                            ?.filter((p: any) => p.type === 'text')
-                            .map((p: any) => p.text)
-                            .join('') ||
-                          msg.content ||
-                          ''
-                        ).trim()}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-text-muted dark:text-white/50">
-                    Ask anything you do not understand from the interpretation.
+            {showAssistantPanel ? (
+              <div className="mt-4 shrink-0 rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36]">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-text-main dark:text-white">Ask Follow-up Questions</p>
+                  <p className="max-w-[60%] truncate text-xs text-text-muted dark:text-white/60">
+                    Current video: {activeVideo?.title || 'None selected'}
                   </p>
-                )}
-                {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
-                <div ref={bottomRef} />
-              </div>
+                </div>
 
-              <form onSubmit={handleAsk} className="mt-3 flex items-center gap-2">
-                <textarea
-                  rows={1}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"
-                  placeholder="Ask a question about the current interpretation..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleAsk()
-                    }
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={isChatLoading || !input.trim()}
-                  className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  Send
-                </button>
-              </form>
-            </div>
+                <div className="max-h-48 space-y-3 overflow-y-auto pr-1">
+                  {messages.length > 0 ? (
+                    messages.map((msg: any) => {
+                      const text = (
+                        msg.parts
+                          ?.filter((p: any) => p.type === 'text')
+                          .map((p: any) => p.text)
+                          .join('') ||
+                        msg.content ||
+                        ''
+                      ).trim()
+
+                      return (
+                        <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          {msg.role === 'user' ? (
+                            <div className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-blue-600 px-3 py-2 text-sm text-white">
+                              {text}
+                            </div>
+                          ) : (
+                            <div className="markdown-body max-w-[85%] rounded-xl bg-black/5 px-3 py-2 text-sm text-slate-800 dark:bg-white/5 dark:text-slate-100">
+                              <Markdown>{text}</Markdown>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <p className="text-xs text-text-muted dark:text-white/50">
+                      Ask anything you do not understand from the interpretation.
+                    </p>
+                  )}
+                  {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
+                  <div ref={bottomRef} />
+                </div>
+
+                <form onSubmit={handleAsk} className="mt-3 flex items-center gap-2">
+                  <textarea
+                    rows={1}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"
+                    placeholder="Ask a question about the current interpretation..."
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleAsk()
+                      }
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isChatLoading || !input.trim()}
+                    className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </form>
+              </div>
+            ) : null}
           </div>
         </main>
 
@@ -725,6 +904,33 @@ const NotebookDetail: NextPage = () => {
                         onChange={() => setExpandMode('all')}
                       />
                       <span>Expand all pages/episodes from each URL</span>
+                    </label>
+                  </div>
+                </div>
+                <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
+                    Interpretation mode
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="interpretationMode"
+                        value="concise"
+                        checked={importInterpretationMode === 'concise'}
+                        onChange={() => setImportInterpretationMode('concise')}
+                      />
+                      <span>Concise (faster, compressed)</span>
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="interpretationMode"
+                        value="detailed"
+                        checked={importInterpretationMode === 'detailed'}
+                        onChange={() => setImportInterpretationMode('detailed')}
+                      />
+                      <span>Detailed (preserve more details)</span>
                     </label>
                   </div>
                 </div>

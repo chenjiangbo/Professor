@@ -28,7 +28,7 @@ export function ActionsAfterResult({
         target="_blank"
         rel="noopener noreferrer"
       >
-        （关注我 😛）
+        Follow me 😛
       </a>
       <a
         href={curVideo}
@@ -36,13 +36,13 @@ export function ActionsAfterResult({
         target="_blank"
         rel="noreferrer"
       >
-        回到视频
+        Back to video
       </a>
       <button
         className="w-24 cursor-pointer rounded-lg bg-sky-400 px-2 py-1 text-center font-medium text-white hover:bg-sky-400/80"
         onClick={onCopy}
       >
-        一键复制
+        Copy
       </button>
       {!hasNoteSetting ? (
         <Link
@@ -50,12 +50,12 @@ export function ActionsAfterResult({
           href="/user/integration"
           target="_blank"
         >
-          📒 一键保存到笔记
+          📒 Save to notes
         </Link>
       ) : (
         <>
-          {flomoWebhook && <SaveNoteButton onSave={flomoSave} loading={flomoLoading} text="一键保存到 Flomo" />}
-          {larkWebhook && <SaveNoteButton onSave={larkSave} loading={larkLoading} text="推送给飞书 Webhook" />}
+          {flomoWebhook && <SaveNoteButton onSave={flomoSave} loading={flomoLoading} text="Save to Flomo" />}
+          {larkWebhook && <SaveNoteButton onSave={larkSave} loading={larkLoading} text="Send to Lark Webhook" />}
         </>
       )}
     </div>

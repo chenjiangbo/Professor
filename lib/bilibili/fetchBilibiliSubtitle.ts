@@ -21,6 +21,10 @@ export async function fetchBilibiliSubtitle(
     : betterSubtitle?.subtitle_url
   console.log('subtitle_url', subtitleUrl)
 
+  if (!subtitleUrl) {
+    return { title, subtitlesArray: null, descriptionText }
+  }
+
   const subtitleResponse = await fetch(subtitleUrl)
   const subtitles = await subtitleResponse.json()
   const transcripts = reduceBilibiliSubtitleTimestamp(subtitles?.body, shouldShowTimestamp)

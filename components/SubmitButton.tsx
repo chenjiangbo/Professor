@@ -8,7 +8,7 @@ export function SubmitButton({ loading }: { loading: boolean }) {
         className="z-10 mx-auto mt-7 w-3/4 rounded-2xl border-gray-500 bg-sky-400 p-3 text-lg font-medium text-white transition hover:bg-sky-500 sm:mt-10 sm:w-1/3"
         type="submit"
       >
-        一键总结
+        Summarize
       </button>
     )
   }

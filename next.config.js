@@ -19,10 +19,10 @@ module.exports = {
   },
   async rewrites() {
     return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.INTERNAL_API_HOSTNAME || ''}/api/:path*`,
-      },
+      // {
+      //   source: '/api/:path*',
+      //   destination: `${process.env.INTERNAL_API_HOSTNAME || ''}/api/:path*`,
+      // },
       {
         source: '/blocked',
         destination: '/shop',
@@ -31,4 +31,6 @@ module.exports = {
   },
 }
 
-module.exports = withSentryConfig(module.exports, { silent: true }, { hideSourcemaps: true })
+// module.exports = withSentryConfig(module.exports, { silent: true }, { hideSourcemaps: true })
+// Export raw config to facilitate debugging
+module.exports = module.exports
