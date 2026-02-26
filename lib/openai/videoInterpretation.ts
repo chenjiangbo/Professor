@@ -1,7 +1,11 @@
 import { normalizeInterpretationMode, type InterpretationMode } from '~/lib/interpretationMode'
 import { limitTranscriptByteLength } from '~/lib/openai/getSmallSizeTranscripts'
 import { generateText } from 'ai'
-import { createVertexProvider, resolveVertexFallbackModel, resolveVertexModel } from '~/lib/ai/vertex'
+import {
+  createVertexProvider,
+  resolveVertexInterpretationArticleModel,
+  resolveVertexInterpretationCoverageModel,
+} from '~/lib/ai/vertex'
 
 type OutlineChapter = {
   title: string
@@ -59,7 +63,6 @@ async function generateCoverageMap(
   title: string,
   transcript: string,
   model: any,
-  fallbackModel: any | null,
   mode: InterpretationMode,
 ): Promise<CoverageResult> {
   const isDetailed = mode === 'detailed'
@@ -97,23 +100,6 @@ async function generateCoverageMap(
       const parsed = safeParseCoverage(text)
       if (parsed) return parsed
     } catch (e: any) {
-      if (fallbackModel && isTransientConnectionError(e)) {
-        try {
-          const { text } = await generateText({
-            model: fallbackModel,
-            prompt: buildPrompt(attempt > 0),
-            temperature: 0.2,
-            maxOutputTokens: coverageMaxOutputTokens,
-          })
-          lastRaw = text
-          const parsed = safeParseCoverage(text)
-          if (parsed) return parsed
-        } catch (fallbackError: any) {
-          throw new Error(
-            `Coverage model call failed: primary=${extractModelError(e)}; fallback=${extractModelError(fallbackError)}`,
-          )
-        }
-      }
       throw new Error(`Coverage model call failed: ${extractModelError(e)}`)
     }
   }
@@ -126,7 +112,6 @@ async function generateFullArticle(
   transcript: string,
   coveragePoints: string[],
   model: any,
-  fallbackModel: any | null,
   mode: InterpretationMode,
 ): Promise<string> {
   const isDetailed = mode === 'detailed'
@@ -171,22 +156,6 @@ async function generateFullArticle(
       const normalized = String(text || '').trim()
       if (normalized) return normalized
     } catch (e: any) {
-      if (fallbackModel && isTransientConnectionError(e)) {
-        try {
-          const { text } = await generateText({
-            model: fallbackModel,
-            prompt: buildPrompt(attempt > 0),
-            temperature: 0.4,
-            maxOutputTokens: isDetailed ? 12000 : 6000,
-          })
-          const normalized = String(text || '').trim()
-          if (normalized) return normalized
-        } catch (fallbackError: any) {
-          throw new Error(
-            `Article model call failed: primary=${extractModelError(e)}; fallback=${extractModelError(fallbackError)}`,
-          )
-        }
-      }
       throw new Error(`Article model call failed: ${extractModelError(e)}`)
     }
   }
@@ -278,9 +247,8 @@ export async function generateVideoInterpretation(
 ): Promise<VideoInterpretationResult> {
   const cleanTitle = String(title || 'Untitled video').trim()
   const vertex = createVertexProvider()
-  const model = vertex(resolveVertexModel())
-  const fallbackModelName = resolveVertexFallbackModel()
-  const fallbackModel = fallbackModelName ? vertex(fallbackModelName) : null
+  const coverageModel = vertex(resolveVertexInterpretationCoverageModel())
+  const articleModel = vertex(resolveVertexInterpretationArticleModel())
   const mode = normalizeInterpretationMode(options?.mode)
   const cleanTranscript = normalizeTranscript(transcript, mode)
   const coverageTimeoutMs = resolveTimeoutMs('VERTEX_COVERAGE_TIMEOUT_MS', mode === 'detailed' ? 180_000 : 120_000)
@@ -288,14 +256,14 @@ export async function generateVideoInterpretation(
 
   await options?.onStage?.('outline')
   const coverage = await withTimeout(
-    generateCoverageMap(cleanTitle, cleanTranscript, model, fallbackModel, mode),
+    generateCoverageMap(cleanTitle, cleanTranscript, coverageModel, mode),
     coverageTimeoutMs,
     'coverage generation timeout',
   )
 
   await options?.onStage?.('explaining')
   const article = await withTimeout(
-    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, model, fallbackModel, mode),
+    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, articleModel, mode),
     articleTimeoutMs,
     'full article generation timeout',
   )
@@ -347,20 +315,6 @@ function extractModelError(e: any): string {
   const detail = body ? ` body=${String(body).slice(0, 600)}` : ''
   const code = status ? ` status=${status}` : ''
   return `${message}${code}${detail}`
-}
-
-function isTransientConnectionError(e: any): boolean {
-  const message = String(e?.message || '')
-  const causeMessage = String(e?.cause?.message || '')
-  const combined = `${message} ${causeMessage}`.toLowerCase()
-  return (
-    combined.includes('cannot connect to api') ||
-    combined.includes('other side closed') ||
-    combined.includes('socket hang up') ||
-    combined.includes('econnreset') ||
-    combined.includes('fetch failed') ||
-    combined.includes('network')
-  )
 }
 
 function toJsonCandidates(raw: string): string[] {
