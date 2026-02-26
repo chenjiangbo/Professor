@@ -58,6 +58,8 @@ RUN addgroup -g 1001 -S nodejs &&\
 
 RUN apk add --no-cache ffmpeg
 
+COPY --from=builder /usr/local/bin/BBDown /usr/local/bin/BBDown
+
 COPY --from=builder /app/next.config.js ./
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
