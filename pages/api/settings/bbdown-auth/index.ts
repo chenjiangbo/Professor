@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
   clearBBDownAuth,
+  getCookieStrength,
   getBBDownAuthRecord,
   getDecryptedBBDownCookie,
   maskCredential,
@@ -18,6 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
     const decrypted = await getDecryptedBBDownCookie()
+    const strength = decrypted ? getCookieStrength(decrypted) : null
     res.status(200).json({
       configured: true,
       mode: record.mode,
@@ -26,6 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       lastValidatedAt: record.lastValidatedAt || null,
       lastError: record.lastError || null,
       maskedCredential: maskCredential(decrypted),
+      cookieStrength: strength,
     })
     return
   }
@@ -45,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await setBBDownAuth({ mode: mode as BBDownAuthMode, value })
       const cookie = await getDecryptedBBDownCookie()
       const validation = await validateBBDownAuthCookie(cookie || '')
+      const strength = cookie ? getCookieStrength(cookie) : null
       await updateBBDownAuthValidation(
         validation.valid ? 'valid' : 'invalid',
         validation.valid ? undefined : validation.message,
@@ -58,6 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status: record?.status,
         lastValidatedAt: record?.lastValidatedAt || null,
         validation,
+        cookieStrength: strength,
       })
     } catch (e: any) {
       res.status(500).json({ error: e?.message || 'Failed to save BBDown auth' })

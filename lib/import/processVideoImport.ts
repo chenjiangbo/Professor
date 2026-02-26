@@ -1,5 +1,5 @@
 import { updateVideo } from '~/lib/repo'
-import { VideoService } from '~/lib/types'
+import { SourceType, VideoService } from '~/lib/types'
 import { fetchSubtitleByBBDown } from '~/lib/subtitle/bbdown'
 import { fetchBilibiliVideoMeta } from '~/lib/bilibili/fetchBilibiliVideoMeta'
 import { generateVideoInterpretation } from '~/lib/openai/videoInterpretation'
@@ -8,9 +8,14 @@ import { normalizeInterpretationMode, type InterpretationMode } from '~/lib/inte
 
 export type ProcessVideoImportArgs = {
   dbVideoId: string
-  videoId: string
-  sourceUrl: string
-  service: VideoService.Bilibili
+  sourceType: SourceType
+  videoId?: string
+  sourceUrl?: string
+  service?: VideoService
+  rawTitle?: string
+  rawText?: string
+  sourceMime?: string
+  generationProfile?: 'full_interpretation' | 'summary_only' | 'import_only'
   pageNumber?: string
   detailLevel?: number
   showEmoji?: boolean
@@ -21,9 +26,84 @@ export type ProcessVideoImportArgs = {
 }
 
 export async function processVideoImport(args: ProcessVideoImportArgs) {
-  const { dbVideoId, videoId, sourceUrl, pageNumber, interpretationMode } = args
+  const { dbVideoId, sourceType, videoId, sourceUrl, pageNumber, interpretationMode, rawTitle, rawText, sourceMime } =
+    args
 
   try {
+    if (sourceType === 'text' || sourceType === 'file') {
+      const transcript = String(rawText || '').trim()
+      const title = String(rawTitle || 'Imported source').trim()
+      if (!transcript) {
+        await updateVideo(dbVideoId, {
+          status: 'error',
+          title,
+          summary: 'Import failed: empty source text',
+          last_error: 'Empty source text',
+        })
+        return
+      }
+
+      const mode = normalizeInterpretationMode(interpretationMode)
+
+      await updateVideo(dbVideoId, {
+        status: mode === 'none' ? 'processing_extract' : 'processing_outline',
+        title,
+        transcript,
+        source_mime: sourceMime || null,
+        subtitle_source: 'direct-import',
+        last_error: null,
+      })
+
+      if (mode === 'none') {
+        await updateVideo(dbVideoId, {
+          status: 'ready',
+          title,
+          transcript,
+          summary: '',
+          chapters: null,
+          interpretation_mode: mode,
+          last_error: null,
+        })
+        return
+      }
+
+      let summary = ''
+      let chapters: string | null = null
+      try {
+        const interpretation = await generateVideoInterpretation(title, transcript, {
+          onStage: async (stage) => {
+            if (stage === 'explaining') {
+              await updateVideo(dbVideoId, { status: 'processing_explaining' })
+            }
+          },
+          mode,
+        })
+        summary = interpretation.summary
+        chapters = JSON.stringify(interpretation.chapters)
+      } catch (e: any) {
+        const err = e?.message || 'Interpretation generation failed'
+        await updateVideo(dbVideoId, {
+          status: 'error',
+          title,
+          transcript,
+          summary: `Interpretation generation failed: ${err}`,
+          last_error: err,
+        })
+        return
+      }
+
+      await updateVideo(dbVideoId, {
+        status: 'ready',
+        title,
+        transcript,
+        summary,
+        chapters,
+        interpretation_mode: mode,
+        last_error: null,
+      })
+      return
+    }
+
     await updateVideo(dbVideoId, { status: 'processing_subtitle', last_error: null })
 
     let title = 'Untitled video'
@@ -32,7 +112,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     let subtitleError = ''
 
     try {
-      const meta = await fetchBilibiliVideoMeta(videoId)
+      const meta = await fetchBilibiliVideoMeta(String(videoId || ''))
       if (meta?.title) {
         title = meta.title
       }
@@ -41,7 +121,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     }
 
     try {
-      const bbdownSubtitle = await fetchSubtitleByBBDown(sourceUrl, pageNumber)
+      const bbdownSubtitle = await fetchSubtitleByBBDown(String(sourceUrl || ''), pageNumber)
       if (bbdownSubtitle?.text) {
         transcript = bbdownSubtitle.text
         subtitleMeta = {
@@ -92,6 +172,19 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     let summary = ''
     let chapters: string | null = null
     const mode = normalizeInterpretationMode(interpretationMode)
+    if (mode === 'none') {
+      await updateVideo(dbVideoId, {
+        status: 'ready',
+        title: title || 'Untitled video',
+        transcript,
+        summary: '',
+        chapters: null,
+        interpretation_mode: mode,
+        ...subtitleMeta,
+        last_error: null,
+      })
+      return
+    }
     try {
       const interpretation = await generateVideoInterpretation(title || 'Untitled video', transcript, {
         onStage: async (stage) => {

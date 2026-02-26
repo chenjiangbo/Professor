@@ -60,6 +60,18 @@ const Home: NextPage = () => {
     mutate()
   }
 
+  const handleDeleteNotebook = async (id: string, title: string) => {
+    const ok = window.confirm(`Delete notebook "${title}"? This will remove all related sources and chats.`)
+    if (!ok) return
+    const res = await fetch(`/api/notebooks/${id}`, { method: 'DELETE' })
+    if (!res.ok && res.status !== 204) {
+      alert(`Delete failed: ${res.status} ${res.statusText}`)
+      return
+    }
+    mutate((prev) => (prev || []).filter((nb) => nb.id !== id), false)
+    mutate()
+  }
+
   return (
     <>
       <Head>
@@ -134,6 +146,17 @@ const Home: NextPage = () => {
                     onClick={() => router.push(`/notebooks/${notebook.id}`)}
                     className="group relative flex flex-col items-stretch justify-start rounded-xl border border-border-strong bg-card shadow-[0_10px_30px_rgba(12,18,38,0.08)] transition-all hover:scale-[1.01] hover:shadow-lg dark:border-transparent dark:bg-[#1c1f27] dark:shadow-[0_0_12px_rgba(0,0,0,0.2)]"
                   >
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeleteNotebook(notebook.id, notebook.title)
+                      }}
+                      className="bg-black/45 hover:bg-black/65 absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-white opacity-0 transition group-hover:opacity-100"
+                      title="Delete notebook"
+                      aria-label="Delete notebook"
+                    >
+                      <span className="material-symbols-outlined text-base">delete</span>
+                    </button>
                     <div
                       className="aspect-[16/9] w-full flex-shrink-0 rounded-t-xl bg-cover bg-center bg-no-repeat"
                       data-alt={notebook.title}
@@ -149,7 +172,7 @@ const Home: NextPage = () => {
                         {notebook.description}
                       </p>
                       <p className="mt-2 text-xs font-normal leading-normal text-text-muted dark:text-slate-500">
-                        Updated: {new Date(notebook.updatedAt).toLocaleDateString()}
+                        Updated: {notebook.updatedAt ? new Date(notebook.updatedAt).toLocaleDateString() : '-'}
                       </p>
                     </div>
                   </div>

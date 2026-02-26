@@ -13,6 +13,12 @@ type Video = {
   title: string
   duration?: string
   status: string
+  platform?: string
+  source_type?: 'bilibili' | 'text' | 'file'
+  source_mime?: string
+  source_url?: string
+  generation_profile?: 'full_interpretation' | 'summary_only' | 'import_only'
+  interpretation_mode?: InterpretationMode
   summary?: string
   last_error?: string
   transcript?: string
@@ -52,13 +58,31 @@ type ImportBatchItem = {
 }
 
 type ImportExpandMode = 'current' | 'all'
-type InterpretationMode = 'concise' | 'detailed'
+type InterpretationMode = 'concise' | 'detailed' | 'none'
 type MainTab = 'learn' | 'subtitle' | 'notes'
+type ImportTab = 'url' | 'text' | 'files'
+type ImportLocalFile = {
+  id: string
+  name: string
+  mimeType: string
+  size: number
+  contentBase64: string
+}
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function parseResponseJsonSafe(res: Response) {
+  const raw = await res.text()
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return { error: raw.slice(0, 500) }
+  }
 }
 
 function getVideoStatusMeta(status: string) {
@@ -74,6 +98,9 @@ function getVideoStatusMeta(status: string) {
   if (status === 'processing_outline') {
     return { label: 'Outline', color: 'text-blue-400', pill: 'bg-blue-500/15 text-blue-200' }
   }
+  if (status === 'processing_summary') {
+    return { label: 'Summary', color: 'text-sky-400', pill: 'bg-sky-500/15 text-sky-200' }
+  }
   if (status === 'processing_explaining') {
     return { label: 'Explaining', color: 'text-violet-300', pill: 'bg-violet-500/15 text-violet-200' }
   }
@@ -85,6 +112,8 @@ function getVideoStatusMeta(status: string) {
 
 function getStageDescription(status: string) {
   if (status === 'queued') return 'Waiting in queue'
+  if (status === 'processing_extract') return 'Extracting text'
+  if (status === 'processing_summary') return 'Generating summary'
   if (status === 'processing_subtitle') return 'Downloading subtitles (BBDown)'
   if (status === 'processing_outline') return 'Generating outline'
   if (status === 'processing_explaining') return 'Generating chapter explanations'
@@ -98,6 +127,51 @@ function isProcessing(status: string) {
   return status === 'queued' || status.startsWith('processing')
 }
 
+function getSourceTypeMeta(video: Video) {
+  const kind =
+    video.source_type || (video.platform === 'text' || video.platform === 'file' ? video.platform : 'bilibili')
+  if (kind === 'text') {
+    return {
+      label: 'Text',
+      icon: 'notes',
+      badge:
+        'border border-blue-300 bg-blue-100 text-blue-900 dark:border-blue-500/20 dark:bg-blue-500/15 dark:text-blue-200',
+    }
+  }
+  if (kind === 'file') {
+    return {
+      label: 'File',
+      icon: 'description',
+      badge:
+        'border border-slate-300 bg-slate-200 text-slate-900 dark:border-slate-500/20 dark:bg-slate-500/20 dark:text-slate-200',
+    }
+  }
+  return {
+    label: 'Bili',
+    icon: 'smart_display',
+    badge: 'border border-red-300 bg-red-100 text-red-900 dark:border-red-500/20 dark:bg-red-500/20 dark:text-red-200',
+  }
+}
+
+function getInterpretationModeMeta(mode?: InterpretationMode) {
+  if (mode === 'detailed')
+    return {
+      label: 'Detailed',
+      badge:
+        'border border-indigo-300 bg-indigo-100 text-indigo-900 dark:border-indigo-300/50 dark:bg-indigo-500/30 dark:text-indigo-50',
+    }
+  if (mode === 'none')
+    return {
+      label: 'Import only',
+      badge:
+        'border border-zinc-300 bg-zinc-100 text-zinc-900 dark:border-zinc-300/45 dark:bg-zinc-500/30 dark:text-zinc-50',
+    }
+  return {
+    label: 'Concise',
+    badge: 'border border-sky-300 bg-sky-100 text-sky-900 dark:border-sky-300/50 dark:bg-sky-500/30 dark:text-sky-50',
+  }
+}
+
 const NotebookDetail: NextPage = () => {
   const router = useRouter()
   const { id } = router.query
@@ -107,6 +181,10 @@ const NotebookDetail: NextPage = () => {
   })
 
   const [urlInput, setUrlInput] = useState('')
+  const [textTitleInput, setTextTitleInput] = useState('')
+  const [textBodyInput, setTextBodyInput] = useState('')
+  const [importFiles, setImportFiles] = useState<ImportLocalFile[]>([])
+  const [importTab, setImportTab] = useState<ImportTab>('url')
   const [showImportModal, setShowImportModal] = useState(false)
   const [importError, setImportError] = useState('')
   const [lastBatchId, setLastBatchId] = useState<string>('')
@@ -120,6 +198,7 @@ const NotebookDetail: NextPage = () => {
   const [activeVideoId, setActiveVideoId] = useState<string>('')
   const [subtitleSearch, setSubtitleSearch] = useState<string>('')
   const [showAssistantPanel, setShowAssistantPanel] = useState(true)
+  const [assistantMaximized, setAssistantMaximized] = useState(false)
   const [reimportingVideoId, setReimportingVideoId] = useState<string>('')
 
   const { data: initialHistory = [] } = useSWR<ChatMessage[]>(
@@ -179,10 +258,19 @@ const NotebookDetail: NextPage = () => {
 
   useEffect(() => {
     const mode = defaultInterpretationModeData?.mode
-    if (mode === 'detailed' || mode === 'concise') {
+    if (mode === 'detailed' || mode === 'concise' || mode === 'none') {
       setImportInterpretationMode(mode)
     }
   }, [defaultInterpretationModeData?.mode])
+
+  useEffect(() => {
+    if (importTab === 'text' || importTab === 'files') {
+      setImportInterpretationMode('none')
+      return
+    }
+    const mode = defaultInterpretationModeData?.mode
+    setImportInterpretationMode(mode === 'detailed' ? 'detailed' : mode === 'none' ? 'none' : 'concise')
+  }, [importTab, defaultInterpretationModeData?.mode])
 
   const filteredVideos = useMemo(
     () => videos.filter((v) => v.title.toLowerCase().includes(search.toLowerCase())),
@@ -195,9 +283,9 @@ const NotebookDetail: NextPage = () => {
   const transcriptLines = useMemo(
     () =>
       String(activeVideo?.transcript || '')
+        .replace(/\r/g, '')
         .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean),
+        .map((line) => line.replace(/\t/g, '  ')),
     [activeVideo?.transcript],
   )
 
@@ -238,31 +326,104 @@ const NotebookDetail: NextPage = () => {
   }
 
   const handleImport = async () => {
-    if (!id || !urlInput.trim()) return
+    if (!id) return
     setImportError('')
     setLoadingImport(true)
     try {
-      const res = await fetch('/api/videos/import-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          notebookId: id,
-          urls: urlInput,
-          expandMode,
-          interpretationMode: importInterpretationMode,
-        }),
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || res.statusText)
+      let res: Response
+      if (importTab === 'url') {
+        if (!urlInput.trim()) throw new Error('Please paste at least one URL.')
+        res = await fetch('/api/videos/import-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            notebookId: id,
+            urls: urlInput,
+            expandMode,
+            interpretationMode: importInterpretationMode,
+          }),
+        })
+      } else if (importTab === 'text') {
+        if (!textBodyInput.trim()) throw new Error('Please paste text content first.')
+        res = await fetch('/api/sources/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            notebookId: id,
+            interpretationMode: importInterpretationMode,
+            items: [{ type: 'text', title: textTitleInput, text: textBodyInput }],
+          }),
+        })
+      } else {
+        if (!importFiles.length) throw new Error('Please choose at least one file.')
+        res = await fetch('/api/sources/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            notebookId: id,
+            interpretationMode: importInterpretationMode,
+            items: importFiles.map((f) => ({
+              type: 'file',
+              name: f.name,
+              mimeType: f.mimeType,
+              contentBase64: f.contentBase64,
+            })),
+          }),
+        })
+      }
+      const json = await parseResponseJsonSafe(res)
+      if (!res.ok) {
+        const itemErrors = Array.isArray((json as any)?.errors)
+          ? (json as any).errors.map((e: any) => `#${Number(e?.index) + 1}: ${e?.reason || 'unknown'}`).join(' | ')
+          : ''
+        throw new Error(`${(json as any)?.error || res.statusText}${itemErrors ? ` (${itemErrors})` : ''}`.trim())
+      }
       setLastBatchId(json.batchId)
       setShowImportModal(false)
       setUrlInput('')
+      setTextTitleInput('')
+      setTextBodyInput('')
+      setImportFiles([])
+      setImportTab('url')
       mutate()
     } catch (e: any) {
       setImportError(e?.message || 'Import failed')
     } finally {
       setLoadingImport(false)
     }
+  }
+
+  const handlePickFiles = async (fileList: FileList | null) => {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    const MAX_SINGLE_FILE_SIZE = 24 * 1024 * 1024
+    const oversized = files.find((f) => f.size > MAX_SINGLE_FILE_SIZE)
+    if (oversized) {
+      setImportError(`File too large: ${oversized.name}. Current limit is 24MB per file.`)
+      return
+    }
+    const mapped = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<ImportLocalFile>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              const result = String(reader.result || '')
+              const payload = result.includes(',') ? result.split(',')[1] : result
+              resolve({
+                id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                name: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                size: file.size,
+                contentBase64: payload,
+              })
+            }
+            reader.onerror = () => reject(new Error(`Failed to read ${file.name}`))
+            reader.readAsDataURL(file)
+          }),
+      ),
+    )
+    setImportFiles((prev) => [...prev, ...mapped])
   }
 
   const handleAsk = async (e?: React.FormEvent) => {
@@ -281,12 +442,14 @@ const NotebookDetail: NextPage = () => {
     )
   }
 
-  const handleReimportCurrent = async () => {
+  const handleReimportCurrent = async (mode: 'concise' | 'detailed') => {
     if (!activeVideoId) return
     setReimportingVideoId(activeVideoId)
     try {
       const res = await fetch(`/api/videos/${activeVideoId}/reimport`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interpretationMode: mode }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -300,31 +463,90 @@ const NotebookDetail: NextPage = () => {
     }
   }
 
+  const renderReimportMenu = (video: Video) => {
+    const loading = reimportingVideoId === video.id
+    return (
+      <details className="group relative">
+        <summary
+          title={loading ? 'Re-importing...' : 'Re-import options'}
+          aria-label={loading ? 'Re-importing...' : 'Re-import options'}
+          className={`dark:border-white/15 inline-flex h-8 w-8 list-none items-center justify-center rounded-md border border-border-strong bg-black/5 text-text-main hover:border-blue-400/50 hover:bg-blue-500/10 dark:bg-white/5 dark:text-white/90 ${
+            loading ? 'pointer-events-none opacity-60' : ''
+          }`}
+        >
+          <span className={`material-symbols-outlined !text-[18px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
+        </summary>
+        <div className="dark:border-white/15 absolute right-0 z-20 mt-2 w-44 rounded-md border border-border-strong bg-card p-1 shadow-lg dark:bg-[#1a1f35]">
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              const details = e.currentTarget.closest('details') as HTMLDetailsElement | null
+              if (details) details.open = false
+              handleReimportCurrent('concise')
+            }}
+            className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-text-main hover:bg-blue-500/10 dark:text-white"
+          >
+            <span className="material-symbols-outlined !text-[16px]">compress</span>
+            <span>Re-import · Concise</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              const details = e.currentTarget.closest('details') as HTMLDetailsElement | null
+              if (details) details.open = false
+              handleReimportCurrent('detailed')
+            }}
+            className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-text-main hover:bg-blue-500/10 dark:text-white"
+          >
+            <span className="material-symbols-outlined !text-[16px]">match_case</span>
+            <span>Re-import · Detailed</span>
+          </button>
+        </div>
+      </details>
+    )
+  }
+
   const renderProcessingPanel = (video: Video) => {
     const current = video.status
-    const steps = [
-      { key: 'queued', label: 'Queued' },
-      { key: 'processing_subtitle', label: 'Subtitle' },
-      { key: 'processing_outline', label: 'Outline' },
-      { key: 'processing_explaining', label: 'Chapter Explaining' },
-      { key: 'ready', label: 'Done' },
-    ]
-    const rank: Record<string, number> = {
-      queued: 0,
-      processing_subtitle: 1,
-      processing_outline: 2,
-      processing_explaining: 3,
-      ready: 4,
-      error: 4,
-      'no-subtitle': 4,
-    }
+    const isDirectSource = video.source_type === 'text' || video.source_type === 'file'
+    const steps = isDirectSource
+      ? [
+          { key: 'queued', label: 'Queued' },
+          { key: 'processing_extract', label: 'Extract' },
+          { key: 'processing_summary', label: 'Summary' },
+          { key: 'ready', label: 'Done' },
+        ]
+      : [
+          { key: 'queued', label: 'Queued' },
+          { key: 'processing_subtitle', label: 'Subtitle' },
+          { key: 'processing_outline', label: 'Outline' },
+          { key: 'processing_explaining', label: 'Chapter Explaining' },
+          { key: 'ready', label: 'Done' },
+        ]
+    const rank: Record<string, number> = isDirectSource
+      ? {
+          queued: 0,
+          processing_extract: 1,
+          processing_summary: 2,
+          ready: 3,
+          error: 3,
+          'no-subtitle': 3,
+        }
+      : {
+          queued: 0,
+          processing_subtitle: 1,
+          processing_outline: 2,
+          processing_explaining: 3,
+          ready: 4,
+          error: 4,
+          'no-subtitle': 4,
+        }
     const idx = rank[current] ?? 0
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36]">
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-2xl font-semibold text-text-main dark:text-white">{video.title}</h2>
             <p className="mt-1 text-sm text-text-muted dark:text-white/60">{getStageDescription(video.status)}</p>
           </div>
           <span className="rounded-full bg-black/10 px-3 py-1 text-xs text-text-muted dark:bg-white/10 dark:text-white/80">
@@ -332,7 +554,7 @@ const NotebookDetail: NextPage = () => {
           </span>
         </div>
 
-        <div className="mt-6 grid grid-cols-5 gap-3">
+        <div className={`mt-6 grid gap-3 ${steps.length === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
           {steps.map((step, i) => {
             const done = i < idx
             const active = i === idx && isProcessing(current)
@@ -373,23 +595,17 @@ const NotebookDetail: NextPage = () => {
     if (!activeVideo) {
       return (
         <div className="flex h-full items-center justify-center rounded-xl border border-border-strong bg-card text-text-muted dark:border-white/10 dark:bg-[#131b36] dark:text-white/60">
-          Import videos to start learning.
+          Import sources to start learning.
         </div>
       )
     }
 
     if (activeVideo.status === 'error' || activeVideo.status === 'no-subtitle') {
+      const canReimport = Boolean(activeVideo.id)
       return (
         <div className="flex h-full flex-col rounded-xl border border-red-500/30 bg-card p-6 dark:bg-[#131b36]">
-          <h2 className="text-2xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
           <p className="mt-3 text-red-300">{activeVideo.summary || 'Processing failed.'}</p>
-          <button
-            onClick={handleReimportCurrent}
-            disabled={reimportingVideoId === activeVideo.id}
-            className="mt-6 w-fit rounded-lg bg-red-500/20 px-4 py-2 text-sm text-red-200 hover:bg-red-500/30 disabled:opacity-60"
-          >
-            {reimportingVideoId === activeVideo.id ? 'Re-importing...' : 'Re-import Video'}
-          </button>
+          {canReimport ? <div className="mt-6">{renderReimportMenu(activeVideo)}</div> : null}
         </div>
       )
     }
@@ -399,39 +615,81 @@ const NotebookDetail: NextPage = () => {
     }
 
     const chapters = activeVideo.chapters || []
+    const compactSummary = String(activeVideo.summary || '')
+      .replace(/^##\s*(学习总览|学习概览|Learning Overview|Overview)\s*\n+/i, '')
+      .trim()
+    const isSummaryOnly =
+      activeVideo.generation_profile === 'summary_only' ||
+      activeVideo.generation_profile === 'import_only' ||
+      activeVideo.interpretation_mode === 'none'
+    const canReimport = Boolean(activeVideo.id)
     return (
       <div className="grid h-full grid-cols-12 gap-4 overflow-hidden">
         <div className="col-span-12 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36] lg:col-span-10">
           <div className="mb-5">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-2xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
-              <button
-                onClick={handleReimportCurrent}
-                disabled={reimportingVideoId === activeVideo.id || isProcessing(activeVideo.status)}
-                className="dark:border-white/15 shrink-0 rounded-md border border-border-strong bg-black/5 px-3 py-1.5 text-xs text-text-main hover:border-blue-400/50 hover:bg-blue-500/10 disabled:opacity-60 dark:bg-white/5 dark:text-white/90"
-              >
-                {reimportingVideoId === activeVideo.id ? 'Re-importing...' : 'Re-import'}
-              </button>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">
+                学习概览
+              </h2>
+              {canReimport ? (
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold ${getSourceTypeMeta(activeVideo).badge}`}
+                  >
+                    {getSourceTypeMeta(activeVideo).label}
+                  </span>
+                  <span
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                      getInterpretationModeMeta(activeVideo.interpretation_mode).badge
+                    }`}
+                  >
+                    {getInterpretationModeMeta(activeVideo.interpretation_mode).label}
+                  </span>
+                  {renderReimportMenu(activeVideo)}
+                </div>
+              ) : (
+                <div className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold ${getSourceTypeMeta(activeVideo).badge}`}
+                  >
+                    {getSourceTypeMeta(activeVideo).label}
+                  </span>
+                  <span
+                    className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                      getInterpretationModeMeta(activeVideo.interpretation_mode).badge
+                    }`}
+                  >
+                    {getInterpretationModeMeta(activeVideo.interpretation_mode).label}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
-              <Markdown>{activeVideo.summary || 'No summary yet.'}</Markdown>
+              <Markdown>
+                {compactSummary ||
+                  (activeVideo.interpretation_mode === 'none'
+                    ? 'This source was imported without summary/interpretation.'
+                    : 'No summary yet.')}
+              </Markdown>
             </div>
           </div>
 
           <div className="space-y-4">
             {chapters.length === 0 ? (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
-                <p className="font-semibold">No chapters available yet.</p>
-                <p className="mt-1 text-xs opacity-90">
-                  {activeVideo.last_error
-                    ? `Reason: ${activeVideo.last_error}`
-                    : 'Reason is not available yet. The model may still be processing or returned an invalid outline format.'}
-                </p>
-                <p className="mt-2 text-xs opacity-90">
-                  You can click <span className="font-semibold">Re-import</span> above to rerun subtitle download and
-                  interpretation.
-                </p>
-              </div>
+              isSummaryOnly ? null : (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
+                  <p className="font-semibold">No chapters available yet.</p>
+                  <p className="mt-1 text-xs opacity-90">
+                    {activeVideo.last_error
+                      ? `Reason: ${activeVideo.last_error}`
+                      : 'Reason is not available yet. The model may still be processing or returned an invalid outline format.'}
+                  </p>
+                  <p className="mt-2 text-xs opacity-90">
+                    You can click <span className="font-semibold">Re-import</span> above to rerun subtitle download and
+                    interpretation.
+                  </p>
+                </div>
+              )
             ) : (
               chapters.map((chapter, idx) => (
                 <section
@@ -457,7 +715,9 @@ const NotebookDetail: NextPage = () => {
         <aside className="col-span-12 flex flex-col gap-3 overflow-y-auto rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] lg:col-span-2">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">Outline</h3>
           {chapters.length === 0 ? (
-            <p className="text-xs text-slate-600 dark:text-slate-300/80">No outline yet.</p>
+            <p className="text-xs text-slate-600 dark:text-slate-300/80">
+              {isSummaryOnly ? 'No outline in import-only mode.' : 'No outline yet.'}
+            </p>
           ) : (
             chapters.map((chapter, idx) => (
               <button
@@ -497,7 +757,7 @@ const NotebookDetail: NextPage = () => {
     if (!activeVideo) {
       return (
         <div className="flex h-full items-center justify-center rounded-xl border border-border-strong bg-card text-text-muted dark:border-white/10 dark:bg-[#131b36] dark:text-white/60">
-          Select a video to view subtitles.
+          Select a source to view content.
         </div>
       )
     }
@@ -507,19 +767,21 @@ const NotebookDetail: NextPage = () => {
         <div className="flex h-full flex-col rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36]">
           <h2 className="text-xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
           <p className="mt-2 text-sm text-text-muted dark:text-white/60">
-            Source subtitles are not available yet. You can re-import this video after subtitle download finishes.
+            Source content is not available yet. You can re-import after processing finishes.
           </p>
         </div>
       )
     }
 
+    const sourceMime = String(activeVideo.source_mime || '').toLowerCase()
+    const sourceUrl = String(activeVideo.source_url || '').toLowerCase()
+    const isMarkdownSource = sourceMime.includes('markdown') || sourceUrl.endsWith('.md')
     const q = subtitleSearch.trim()
     const matchCount = subtitleMatchedIndexes.length
 
     return (
       <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36]">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="truncate text-lg font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
           <div className="text-xs text-text-muted dark:text-white/60">
             Lines: {transcriptLines.length}
             {q ? ` · Matches: ${matchCount}` : ''}
@@ -532,31 +794,39 @@ const NotebookDetail: NextPage = () => {
           </span>
           <input
             className="flex-1 bg-transparent text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:text-white dark:placeholder:text-white/40"
-            placeholder="Search subtitle text"
+            placeholder="Search source text"
             value={subtitleSearch}
             onChange={(e) => setSubtitleSearch(e.target.value)}
           />
         </div>
 
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-lg border border-border-strong bg-black/5 p-3 dark:border-white/10 dark:bg-white/5">
-          {transcriptLines.map((line, idx) => {
-            const matched = q && line.toLowerCase().includes(q.toLowerCase())
-            return (
-              <div
-                key={idx}
-                id={`subtitle-line-${idx}`}
-                className={`grid grid-cols-[56px_1fr] gap-3 rounded px-2 py-1 text-sm ${
-                  matched ? 'bg-yellow-400/15' : ''
-                }`}
-              >
-                <span className="text-xs text-text-muted dark:text-white/50">#{idx + 1}</span>
-                <div className="whitespace-pre-wrap break-words text-text-main dark:text-white/90">
-                  {highlightSubtitleLine(line, subtitleSearch)}
+        {isMarkdownSource && !q ? (
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border-strong bg-black/5 p-4 dark:border-white/10 dark:bg-white/5">
+            <article className="markdown-body text-slate-800 dark:text-slate-100">
+              <Markdown>{activeVideo.transcript}</Markdown>
+            </article>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-lg border border-border-strong bg-black/5 p-3 dark:border-white/10 dark:bg-white/5">
+            {transcriptLines.map((line, idx) => {
+              const matched = q && line.toLowerCase().includes(q.toLowerCase())
+              return (
+                <div
+                  key={idx}
+                  id={`subtitle-line-${idx}`}
+                  className={`grid grid-cols-[56px_1fr] gap-3 rounded px-2 py-1 text-sm ${
+                    matched ? 'bg-yellow-400/15' : ''
+                  }`}
+                >
+                  <span className="text-xs text-text-muted dark:text-white/50">#{idx + 1}</span>
+                  <div className="whitespace-pre-wrap break-words text-text-main dark:text-white/90">
+                    {highlightSubtitleLine(line, subtitleSearch)}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     )
   }
@@ -603,7 +873,7 @@ const NotebookDetail: NextPage = () => {
         <main className="grid flex-1 grid-cols-12 gap-4 overflow-hidden p-4">
           <div className="col-span-12 flex flex-col gap-4 overflow-hidden rounded-lg border border-border-strong bg-card p-4 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none lg:col-span-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase text-text-muted dark:text-white/40">Videos</h3>
+              <h3 className="text-sm font-semibold uppercase text-text-muted dark:text-white/40">Sources</h3>
               <div className="flex gap-2">
                 {selected.length > 0 && (
                   <button
@@ -618,9 +888,17 @@ const NotebookDetail: NextPage = () => {
                     setShowImportModal(true)
                     setImportError('')
                     setUrlInput('')
+                    setTextTitleInput('')
+                    setTextBodyInput('')
+                    setImportFiles([])
+                    setImportTab('url')
                     setExpandMode('current')
                     setImportInterpretationMode(
-                      defaultInterpretationModeData?.mode === 'detailed' ? 'detailed' : 'concise',
+                      defaultInterpretationModeData?.mode === 'detailed'
+                        ? 'detailed'
+                        : defaultInterpretationModeData?.mode === 'none'
+                        ? 'none'
+                        : 'concise',
                     )
                   }}
                   className="rounded bg-accent px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/90 dark:bg-primary dark:text-white"
@@ -637,7 +915,7 @@ const NotebookDetail: NextPage = () => {
                 </span>
                 <input
                   className="flex-1 bg-transparent text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:text-white dark:placeholder:text-white/40"
-                  placeholder="Search videos"
+                  placeholder="Search sources"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -672,13 +950,25 @@ const NotebookDetail: NextPage = () => {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p
-                            className="truncate text-sm font-medium text-text-main dark:text-white"
-                            title={video.title}
-                          >
-                            {video.title}
-                          </p>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase ${meta.pill}`}>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                getSourceTypeMeta(video).badge
+                              }`}
+                            >
+                              {getSourceTypeMeta(video).label}
+                            </span>
+                            <span className="material-symbols-outlined !text-[16px] text-text-muted dark:text-white/60">
+                              {getSourceTypeMeta(video).icon}
+                            </span>
+                            <p
+                              className="truncate text-sm font-medium text-text-main dark:text-white"
+                              title={video.title}
+                            >
+                              {video.title}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase ${meta.pill}`}>
                             {meta.label}
                           </span>
                         </div>
@@ -686,6 +976,13 @@ const NotebookDetail: NextPage = () => {
                           {processing ? (
                             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-yellow-300" />
                           ) : null}
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              getInterpretationModeMeta(video.interpretation_mode).badge
+                            }`}
+                          >
+                            {getInterpretationModeMeta(video.interpretation_mode).label}
+                          </span>
                           <span>{getStageDescription(video.status)}</span>
                         </div>
                       </div>
@@ -695,22 +992,36 @@ const NotebookDetail: NextPage = () => {
               })}
 
               {filteredVideos.length === 0 && (
-                <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">No videos.</div>
+                <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">No sources.</div>
               )}
             </div>
           </div>
 
           <div className="col-span-12 flex h-full flex-col overflow-hidden lg:col-span-9">
             <div className="mb-3 flex shrink-0 items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-text-main dark:text-white">{notebook?.title || 'Notebook'}</h1>
-                <button
-                  onClick={() => setShowAssistantPanel((v) => !v)}
-                  className="dark:border-white/15 rounded-full border border-border-strong bg-black/5 px-3 py-1.5 text-xs text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/70 dark:hover:text-white"
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <h1
+                  className="min-w-0 flex-1 truncate text-2xl font-bold text-text-main dark:text-white"
+                  title={activeVideo?.title || ''}
                 >
-                  {showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                  {activeVideo?.title || 'No source selected'}
+                </h1>
+                <button
+                  onClick={() =>
+                    setShowAssistantPanel((v) => {
+                      const next = !v
+                      if (!next) setAssistantMaximized(false)
+                      return next
+                    })
+                  }
+                  title={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                  aria-label={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                  className="dark:border-white/15 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border-strong bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/70 dark:hover:text-white"
+                >
+                  <span className="material-symbols-outlined !text-[18px]">
+                    {showAssistantPanel ? 'right_panel_close' : 'right_panel_open'}
+                  </span>
                 </button>
-                <span className="dark:text-white/55 text-xs text-text-muted">看不懂或想深入，可继续提问</span>
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
@@ -741,7 +1052,7 @@ const NotebookDetail: NextPage = () => {
                       : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                   }`}
                 >
-                  Subtitle
+                  Source
                 </button>
               </div>
             </div>
@@ -775,65 +1086,105 @@ const NotebookDetail: NextPage = () => {
               </div>
             )}
 
-            {activeTab === 'learn' ? (
-              <div className="min-h-0 flex-1 overflow-hidden">{renderLearnPanel()}</div>
-            ) : activeTab === 'subtitle' ? (
-              <div className="min-h-0 flex-1 overflow-hidden">{renderSubtitlePanel()}</div>
-            ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
-                <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
-                <p className="mt-2 text-sm text-text-muted dark:text-white/60">
-                  Notes workspace is kept as-is. You can continue adding and organizing notes here while videos process
-                  in background.
-                </p>
-              </div>
-            )}
-
-            {showAssistantPanel ? (
-              <div className="mt-4 shrink-0 rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36]">
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-text-main dark:text-white">Ask Follow-up Questions</p>
-                  <p className="max-w-[60%] truncate text-xs text-text-muted dark:text-white/60">
-                    Current video: {activeVideo?.title || 'None selected'}
+            {!assistantMaximized ? (
+              activeTab === 'learn' ? (
+                <div className="min-h-0 flex-1 overflow-hidden">{renderLearnPanel()}</div>
+              ) : activeTab === 'subtitle' ? (
+                <div className="min-h-0 flex-1 overflow-hidden">{renderSubtitlePanel()}</div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
+                  <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
+                  <p className="mt-2 text-sm text-text-muted dark:text-white/60">
+                    Notes workspace is kept as-is. You can continue adding and organizing notes here while videos
+                    process in background.
                   </p>
                 </div>
+              )
+            ) : null}
 
-                <div className="max-h-48 space-y-3 overflow-y-auto pr-1">
-                  {messages.length > 0 ? (
-                    messages.map((msg: any) => {
-                      const text = (
-                        msg.parts
-                          ?.filter((p: any) => p.type === 'text')
-                          .map((p: any) => p.text)
-                          .join('') ||
-                        msg.content ||
-                        ''
-                      ).trim()
+            {showAssistantPanel ? (
+              <div
+                className={`flex flex-col rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] ${
+                  assistantMaximized ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 shrink-0'
+                }`}
+              >
+                <div className="mb-3 flex shrink-0 items-center justify-between">
+                  <p className="text-sm font-semibold text-text-main dark:text-white">Ask Follow-up Questions</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setAssistantMaximized((v) => !v)}
+                      title={assistantMaximized ? 'Minimize' : 'Maximize'}
+                      aria-label={assistantMaximized ? 'Minimize' : 'Maximize'}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded border border-border-strong text-text-muted hover:text-text-main dark:border-white/20 dark:text-white/70 dark:hover:text-white"
+                    >
+                      <span className="material-symbols-outlined !text-[16px]">
+                        {assistantMaximized ? 'close_fullscreen' : 'open_in_full'}
+                      </span>
+                    </button>
+                  </div>
+                </div>
 
-                      return (
-                        <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          {msg.role === 'user' ? (
-                            <div className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-blue-600 px-3 py-2 text-sm text-white">
-                              {text}
-                            </div>
-                          ) : (
-                            <div className="markdown-body max-w-[85%] rounded-xl bg-black/5 px-3 py-2 text-sm text-slate-800 dark:bg-white/5 dark:text-slate-100">
-                              <Markdown>{text}</Markdown>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <p className="text-xs text-text-muted dark:text-white/50">
-                      Ask anything you do not understand from the interpretation.
-                    </p>
-                  )}
+                <div className={`${assistantMaximized ? 'min-h-0 flex-1' : 'max-h-48'} space-y-3 overflow-y-auto pr-1`}>
+                  {messages.length > 0
+                    ? messages.map((msg: any) => {
+                        const text = (
+                          msg.parts
+                            ?.filter((p: any) => p.type === 'text')
+                            .map((p: any) => p.text)
+                            .join('') ||
+                          msg.content ||
+                          ''
+                        ).trim()
+                        const toolParts = (msg.parts || []).filter((p: any) =>
+                          typeof p?.type === 'string' ? p.type.startsWith('tool-') : false,
+                        )
+
+                        return (
+                          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            {msg.role === 'user' ? (
+                              <div className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-blue-600 px-3 py-2 text-sm text-white">
+                                {text}
+                              </div>
+                            ) : (
+                              <div className="max-w-[85%] space-y-2">
+                                {toolParts.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {toolParts.map((part: any, idx: number) => {
+                                      const state = String(part?.state || '')
+                                      const input = part?.input || part?.args || {}
+                                      const query =
+                                        typeof input?.query === 'string' ? input.query : JSON.stringify(input || {})
+                                      const statusLabel =
+                                        state === 'output-available'
+                                          ? 'Search completed'
+                                          : state === 'input-available'
+                                          ? 'Searching...'
+                                          : 'Tool running...'
+                                      return (
+                                        <div
+                                          key={`${msg.id}-tool-${idx}`}
+                                          className="dark:border-white/15 rounded-lg border border-border-strong bg-black/5 px-3 py-2 text-xs text-text-muted dark:bg-white/5 dark:text-white/70"
+                                        >
+                                          🔍 {statusLabel} {query ? `: ${query}` : ''}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                ) : null}
+                                <div className="markdown-body rounded-xl bg-black/5 px-3 py-2 text-sm text-slate-800 dark:bg-white/5 dark:text-slate-100">
+                                  <Markdown>{text}</Markdown>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })
+                    : null}
                   {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
                   <div ref={bottomRef} />
                 </div>
 
-                <form onSubmit={handleAsk} className="mt-3 flex items-center gap-2">
+                <form onSubmit={handleAsk} className="mt-3 flex shrink-0 items-center gap-2">
                   <textarea
                     rows={1}
                     value={input}
@@ -864,7 +1215,7 @@ const NotebookDetail: NextPage = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
             <div className="w-full max-w-2xl rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Import videos</h3>
+                <h3 className="text-lg font-semibold">Import sources</h3>
                 <button
                   className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
                   onClick={() => setShowImportModal(false)}
@@ -873,45 +1224,132 @@ const NotebookDetail: NextPage = () => {
                 </button>
               </div>
               <div className="mt-4 space-y-4">
-                <textarea
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder={`Paste one or multiple Bilibili URLs.\nSupport separators: newline, space, comma, semicolon.`}
-                  rows={8}
-                  className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
-                />
-                <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
-                    Import scope
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="expandMode"
-                        value="current"
-                        checked={expandMode === 'current'}
-                        onChange={() => setExpandMode('current')}
-                      />
-                      <span>Only current video/page (recommended)</span>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <input
-                        type="radio"
-                        name="expandMode"
-                        value="all"
-                        checked={expandMode === 'all'}
-                        onChange={() => setExpandMode('all')}
-                      />
-                      <span>Expand all pages/episodes from each URL</span>
-                    </label>
-                  </div>
+                <div className="flex items-center gap-2 text-xs">
+                  {(['url', 'text', 'files'] as ImportTab[]).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setImportTab(tab)}
+                      className={`rounded-full px-3 py-1.5 ${
+                        importTab === tab
+                          ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
+                          : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
+                      }`}
+                    >
+                      {tab === 'url' ? 'URL' : tab === 'text' ? 'Text' : 'Files'}
+                    </button>
+                  ))}
                 </div>
+                {importTab === 'url' ? (
+                  <>
+                    <textarea
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder={`Paste one or multiple Bilibili URLs.\nSupport separators: newline, space, comma, semicolon.`}
+                      rows={8}
+                      className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                    />
+                    <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
+                        Import scope
+                      </p>
+                      <div className="flex flex-col gap-2">
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="radio"
+                            name="expandMode"
+                            value="current"
+                            checked={expandMode === 'current'}
+                            onChange={() => setExpandMode('current')}
+                          />
+                          <span>Only current video/page (recommended)</span>
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="radio"
+                            name="expandMode"
+                            value="all"
+                            checked={expandMode === 'all'}
+                            onChange={() => setExpandMode('all')}
+                          />
+                          <span>Expand all pages/episodes from each URL</span>
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                {importTab === 'text' ? (
+                  <div className="space-y-3">
+                    <input
+                      value={textTitleInput}
+                      onChange={(e) => setTextTitleInput(e.target.value)}
+                      placeholder="Title (optional)"
+                      className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                    />
+                    <textarea
+                      value={textBodyInput}
+                      onChange={(e) => setTextBodyInput(e.target.value)}
+                      rows={10}
+                      placeholder="Paste text content to summarize"
+                      className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                    />
+                    <div className="text-xs text-text-muted dark:text-white/50">
+                      Characters: {textBodyInput.trim().length}
+                    </div>
+                  </div>
+                ) : null}
+                {importTab === 'files' ? (
+                  <div className="space-y-3">
+                    <label className="block cursor-pointer rounded-md border border-dashed border-border-strong bg-white/50 px-4 py-6 text-center text-sm text-text-muted hover:border-accent/50 dark:border-white/20 dark:bg-black/20 dark:text-white/60">
+                      <input
+                        type="file"
+                        className="hidden"
+                        multiple
+                        accept=".txt,.md,.srt,.vtt,.ass,.pdf,.docx"
+                        onChange={(e) => handlePickFiles(e.target.files)}
+                      />
+                      Click to choose files (.txt/.md/.srt/.vtt/.ass/.pdf/.docx)
+                    </label>
+                    <div className="max-h-40 space-y-2 overflow-y-auto">
+                      {importFiles.map((f) => (
+                        <div
+                          key={f.id}
+                          className="dark:border-white/15 flex items-center justify-between rounded-md border border-border-strong bg-black/5 px-3 py-2 text-xs dark:bg-white/5"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-text-main dark:text-white">{f.name}</div>
+                            <div className="text-text-muted dark:text-white/50">
+                              {f.mimeType || 'unknown'} · {(f.size / 1024).toFixed(1)} KB
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setImportFiles((prev) => prev.filter((x) => x.id !== f.id))}
+                            className="ml-3 rounded border border-red-500/30 px-2 py-1 text-red-500 hover:bg-red-500/10"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      {importFiles.length === 0 ? (
+                        <div className="text-xs text-text-muted dark:text-white/50">No files selected.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
                     Interpretation mode
                   </p>
                   <div className="flex flex-col gap-2">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="interpretationMode"
+                        value="none"
+                        checked={importInterpretationMode === 'none'}
+                        onChange={() => setImportInterpretationMode('none')}
+                      />
+                      <span>Import only (no summary/interpretation)</span>
+                    </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
                         type="radio"
@@ -936,7 +1374,7 @@ const NotebookDetail: NextPage = () => {
                 </div>
                 {importError && <p className="text-sm text-red-500 dark:text-red-400">{importError}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
-                  Import runs in background. You can continue learning and asking questions.
+                  Import runs in background. Text/File defaults to import-only; you can switch to Concise/Detailed.
                 </p>
 
                 <div className="mt-4 flex justify-end gap-2">
@@ -948,10 +1386,15 @@ const NotebookDetail: NextPage = () => {
                   </button>
                   <button
                     onClick={handleImport}
-                    disabled={loadingImport || !urlInput.trim()}
+                    disabled={
+                      loadingImport ||
+                      (importTab === 'url' && !urlInput.trim()) ||
+                      (importTab === 'text' && !textBodyInput.trim()) ||
+                      (importTab === 'files' && importFiles.length === 0)
+                    }
                     className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary"
                   >
-                    {loadingImport ? 'Submitting...' : 'Start background import'}
+                    {loadingImport ? 'Submitting...' : 'Start import'}
                   </button>
                 </div>
               </div>

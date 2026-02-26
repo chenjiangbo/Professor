@@ -17,6 +17,10 @@ services:
         IS_USED_SENTRY: 0
     container_name: bibigpt
     env_file: .env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+    volumes:
+      - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
     ports:
       - 8300:3000
     networks:
@@ -28,26 +32,13 @@ services:
       context: ./
       dockerfile: dev.Dockerfile
     container_name: bibigpt-dev
-    ports:
-      - 3302:3000
-    env_file: .env
-    networks:
-      - xipi-network
-
-  # Service 3> LiteLLM Proxy (统一 LLM 网关)
-  litellm-proxy:
-    image: ghcr.io/berriai/litellm:main
-    container_name: litellm-proxy
-    env_file: .env
-    platform: linux/amd64
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
     volumes:
-      - ./litellm.config.template.yaml:/app/litellm.config.template.yaml:ro
       - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
-    entrypoint: ['/bin/sh', '-c']
-    command: >
-      "pip install --no-cache-dir --upgrade 'litellm[proxy]==1.81.12' python-multipart && python -c \"import os, pathlib; src=pathlib.Path('/app/litellm.config.template.yaml'); dst=pathlib.Path('/tmp/litellm.config.yaml'); dst.write_text(os.path.expandvars(src.read_text())); print('Rendered config to', dst); print(dst.read_text())\" && export LITELLM_CONFIG_PATH=/tmp/litellm.config.yaml && litellm --config /tmp/litellm.config.yaml --port 4000"
+    ports:
+      - 3302:3000
+    env_file: .env
     networks:
       - xipi-network
 

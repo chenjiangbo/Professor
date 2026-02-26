@@ -12,6 +12,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+    volumes:
+      - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
     ports:
       - '8300:3000'
     networks:

@@ -71,11 +71,17 @@ export async function createVideo(data: {
   duration?: string
   batchId?: string
   interpretationMode?: string
+  sourceType?: string
+  generationProfile?: string
+  sourceMime?: string
 }) {
   const id = randomUUID()
   const { rows } = await pool.query(
-    `INSERT INTO videos (id, notebook_id, batch_id, platform, external_id, source_url, title, status, duration, interpretation_mode)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO videos (
+      id, notebook_id, batch_id, platform, external_id, source_url, title, status, duration, interpretation_mode,
+      source_type, generation_profile, source_mime
+    )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
     [
       id,
       data.notebookId,
@@ -87,6 +93,9 @@ export async function createVideo(data: {
       data.status,
       data.duration || null,
       data.interpretationMode || 'concise',
+      data.sourceType || 'bilibili',
+      data.generationProfile || 'full_interpretation',
+      data.sourceMime || null,
     ],
   )
   return rows[0]
@@ -160,7 +169,7 @@ export async function getImportBatch(id: string) {
 
 export async function listImportBatchItems(batchId: string) {
   const { rows } = await pool.query(
-    `SELECT id, notebook_id, batch_id, platform, external_id, source_url, title, status, summary, created_at, updated_at
+    `SELECT id, notebook_id, batch_id, platform, source_type, external_id, source_url, title, status, summary, created_at, updated_at
      FROM videos
      WHERE batch_id=$1
      ORDER BY created_at DESC`,

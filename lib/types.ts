@@ -12,7 +12,11 @@ export type VideoConfig = {
 
 export enum VideoService {
   Bilibili = 'bilibili',
+  Text = 'text',
+  File = 'file',
 }
+
+export type SourceType = 'bilibili' | 'text' | 'file'
 
 export type CommonSubtitleItem = {
   text: string

@@ -79,11 +79,14 @@ const SettingsPage: NextPage = () => {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      setMessage(
-        json?.validation?.valid
-          ? 'Saved and validated successfully.'
-          : `Saved, but validation failed: ${json?.validation?.message || 'unknown error'}`,
-      )
+      const base = json?.validation?.valid
+        ? 'Saved and validated successfully.'
+        : `Saved, but validation failed: ${json?.validation?.message || 'unknown error'}`
+      const weakHint =
+        json?.cookieStrength?.level === 'basic'
+          ? ' Current cookie looks basic only; full Cookie is recommended for stable subtitle fetch.'
+          : ''
+      setMessage(base + weakHint)
       setValue('')
       await loadAuthState()
     } catch (e: any) {
@@ -100,9 +103,14 @@ const SettingsPage: NextPage = () => {
       const res = await fetch('/api/settings/bbdown-auth/validate', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      setMessage(
-        json?.validation?.valid ? 'Credential is valid.' : `Credential invalid: ${json?.validation?.message || ''}`,
-      )
+      const base = json?.validation?.valid
+        ? 'Credential is valid.'
+        : `Credential invalid: ${json?.validation?.message || ''}`
+      const weakHint =
+        json?.cookieStrength?.level === 'basic'
+          ? ' Current cookie looks basic only; full Cookie is recommended for stable subtitle fetch.'
+          : ''
+      setMessage(base + weakHint)
       await loadAuthState()
     } catch (e: any) {
       setMessage(e?.message || 'Validation failed')
@@ -179,7 +187,7 @@ const SettingsPage: NextPage = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-                  如果你要导入 B 站视频，请先配置 SESSDATA。
+                  如果你要导入 B 站视频，请先配置 BBDown 登录凭据（推荐 Full Cookie）。
                   <a className="ml-2 font-semibold underline" href="#bbdown-login">
                     跳转到配置区
                   </a>
@@ -340,6 +348,21 @@ const SettingsPage: NextPage = () => {
                               </span>
                             </p>
                             <p>Mode: {authState?.mode}</p>
+                            <p>
+                              Cookie strength:{' '}
+                              <span
+                                className={
+                                  authState?.cookieStrength?.level === 'strong'
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-yellow-700 dark:text-yellow-300'
+                                }
+                              >
+                                {authState?.cookieStrength?.level || 'unknown'}
+                              </span>
+                            </p>
+                            {authState?.cookieStrength?.message ? (
+                              <p className="text-text-muted dark:text-gray-400">{authState.cookieStrength.message}</p>
+                            ) : null}
                             <p>Credential: {authState?.maskedCredential || '****'}</p>
                             <p>
                               Last validated:{' '}
@@ -365,8 +388,8 @@ const SettingsPage: NextPage = () => {
                           onChange={(e) => setMode(e.target.value as any)}
                           className="block w-full rounded-md border border-border-strong bg-white py-2 pl-3 pr-10 text-text-main focus:border-accent focus:outline-none dark:border-white/20 dark:bg-white/5 dark:text-white"
                         >
+                          <option value="cookie">Full Cookie string (Recommended)</option>
                           <option value="sessdata">SESSDATA only</option>
-                          <option value="cookie">Full Cookie string</option>
                         </select>
                       </div>
 
@@ -381,6 +404,10 @@ const SettingsPage: NextPage = () => {
                           placeholder={mode === 'sessdata' ? 'Paste SESSDATA value' : 'Paste full cookie string'}
                           className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                         />
+                        <p className="mt-2 text-xs text-text-muted dark:text-gray-400">
+                          推荐直接粘贴浏览器请求头中的完整 <code>Cookie:</code> 值。仅使用 SESSDATA
+                          在部分视频（合集/分组/权限差异）下可能无法拿到字幕。
+                        </p>
                       </div>
 
                       {message ? <p className="text-sm text-text-main dark:text-white/80">{message}</p> : null}

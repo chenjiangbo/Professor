@@ -69,20 +69,20 @@ export async function fetchBilibiliPages(bvid: string) {
 
   const data = await res.json()
   const pages = data?.data?.pages || []
-  const episodes = data?.data?.ugc_season?.sections?.flatMap((s: any) => s?.episodes || [])?.filter(Boolean) || []
-
-  if (episodes.length > 0) {
-    return episodes.map((ep: any, idx: number) => ({
-      title: ep.title || ep.arc?.title || `Episode ${idx + 1}`,
-      page: Number(ep.page || ep.page_id || ep.id || idx + 1),
-      cid: ep.cid || ep.id || idx,
+  if (pages.length > 0) {
+    return pages.map((p: any) => ({
+      title: p.part || `P${p.page}`,
+      page: Number(p.page || 1),
+      cid: p.cid || p.page,
     }))
   }
 
-  return pages.map((p: any) => ({
-    title: p.part || `P${p.page}`,
-    page: Number(p.page || 1),
-    cid: p.cid || p.page,
+  // Fallback only when standard pages are unavailable.
+  const episodes = data?.data?.ugc_season?.sections?.flatMap((s: any) => s?.episodes || [])?.filter(Boolean) || []
+  return episodes.map((ep: any, idx: number) => ({
+    title: ep.title || ep.arc?.title || `Episode ${idx + 1}`,
+    page: idx + 1,
+    cid: ep.cid || ep.id || idx + 1,
   }))
 }
 

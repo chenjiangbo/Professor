@@ -1,10 +1,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { createNotebook, listNotebooks } from '~/lib/repo'
 
+function withNotebookTimestamps(row: any) {
+  return {
+    ...row,
+    createdAt: row?.created_at || row?.createdAt || null,
+    updatedAt: row?.updated_at || row?.updatedAt || null,
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const data = await listNotebooks()
-    res.status(200).json(data)
+    res.status(200).json(data.map(withNotebookTimestamps))
     return
   }
   if (req.method === 'POST') {
@@ -14,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
     const created = await createNotebook({ title, description })
-    res.status(201).json(created)
+    res.status(201).json(withNotebookTimestamps(created))
     return
   }
   res.setHeader('Allow', 'GET,POST')

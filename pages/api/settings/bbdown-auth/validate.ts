@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
+  getCookieStrength,
   getBBDownAuthRecord,
   getDecryptedBBDownCookie,
   updateBBDownAuthValidation,
@@ -25,6 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(422).json({ error: 'Failed to decrypt credential' })
       return
     }
+    const strength = getCookieStrength(cookie)
     const validation = await validateBBDownAuthCookie(cookie)
     await updateBBDownAuthValidation(
       validation.valid ? 'valid' : 'invalid',
@@ -34,6 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json({
       ok: validation.valid,
       validation,
+      cookieStrength: strength,
       status: latest?.status || 'unknown',
       lastValidatedAt: latest?.lastValidatedAt || null,
       lastError: latest?.lastError || null,

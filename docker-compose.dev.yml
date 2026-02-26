@@ -9,13 +9,6 @@ services:
     networks:
       - xipi-network
 
-  litellm-proxy:
-    platform: linux/amd64
-    ports:
-      - 4180:4000
-    networks:
-      - xipi-network
-
 networks:
   xipi-network:
     external: true

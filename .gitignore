@@ -45,3 +45,6 @@ next.config.original.js
 
 # lockfile
 pnpm-lock.yaml
+
+# local credential files
+crafty-willow-469010-d3-a16f33a47583.json

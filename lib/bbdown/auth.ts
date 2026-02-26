@@ -15,8 +15,51 @@ type BBDownAuthRecord = {
   lastError?: string
 }
 
+function normalizeCookieHeaderText(rawValue: string): string {
+  return String(rawValue || '')
+    .trim()
+    .replace(/^cookie:\s*/i, '')
+    .replace(/\r/g, '')
+}
+
+function normalizeFullCookie(rawValue: string): string {
+  const normalized = normalizeCookieHeaderText(rawValue)
+  if (!normalized) throw new Error('Credential is required')
+
+  // Accept single SESSDATA value even in full-cookie mode.
+  if (!normalized.includes('=') && !normalized.includes(';')) {
+    const sess = normalized
+      .replace(/^SESSDATA=/i, '')
+      .replace(/;.*$/, '')
+      .trim()
+    if (sess) return `SESSDATA=${sess}`
+  }
+
+  const pairs = normalized
+    .split(/[;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const idx = p.indexOf('=')
+      if (idx < 1) return null
+      const key = p.slice(0, idx).trim()
+      const value = p.slice(idx + 1).trim()
+      if (!key || !value) return null
+      return `${key}=${value}`
+    })
+    .filter(Boolean) as string[]
+
+  if (!pairs.length) throw new Error('Invalid Cookie string')
+  return pairs.join('; ')
+}
+
+function isCookieStrong(cookie: string): boolean {
+  const lower = cookie.toLowerCase()
+  return lower.includes('sessdata=') && lower.includes('dedeuserid=') && lower.includes('bili_jct=')
+}
+
 function normalizeCookieFromInput(mode: BBDownAuthMode, rawValue: string): string {
-  const value = String(rawValue || '').trim()
+  const value = normalizeCookieHeaderText(rawValue)
   if (!value) throw new Error('Credential is required')
   if (mode === 'sessdata') {
     const sanitized = value
@@ -26,7 +69,7 @@ function normalizeCookieFromInput(mode: BBDownAuthMode, rawValue: string): strin
     if (!sanitized) throw new Error('Invalid SESSDATA')
     return `SESSDATA=${sanitized}`
   }
-  return value
+  return normalizeFullCookie(value)
 }
 
 function parseRecord(raw: string | null): BBDownAuthRecord | null {
@@ -99,6 +142,17 @@ export async function validateBBDownAuthCookie(cookie: string): Promise<{ valid:
     return { valid: true, message: 'Cookie valid' }
   } catch (e: any) {
     return { valid: false, message: e?.message || 'Failed to validate cookie' }
+  }
+}
+
+export function getCookieStrength(cookie: string): { level: 'strong' | 'basic'; message: string } {
+  if (isCookieStrong(cookie)) {
+    return { level: 'strong', message: 'Full cookie detected (SESSDATA + DedeUserID + bili_jct).' }
+  }
+  return {
+    level: 'basic',
+    message:
+      'Only basic cookie fields detected. Some Bilibili videos may still fail subtitle fetch; full cookie is recommended.',
   }
 }
 

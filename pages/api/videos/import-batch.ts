@@ -41,8 +41,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(400).json({ error: 'expandMode must be "current" or "all"' })
     return
   }
-  if (interpretationMode && interpretationMode !== 'concise' && interpretationMode !== 'detailed') {
-    res.status(400).json({ error: 'interpretationMode must be "concise" or "detailed"' })
+  if (
+    interpretationMode &&
+    interpretationMode !== 'concise' &&
+    interpretationMode !== 'detailed' &&
+    interpretationMode !== 'none'
+  ) {
+    res.status(400).json({ error: 'interpretationMode must be "concise", "detailed", or "none"' })
     return
   }
 
@@ -101,6 +106,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         notebookId,
         batchId: batch.id,
         platform: VideoService.Bilibili,
+        sourceType: 'bilibili',
+        generationProfile: 'full_interpretation',
         externalId: item.externalId,
         sourceUrl: item.sourceUrl,
         title: item.title || 'Importing...',
@@ -112,6 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const bvid = item.externalId.split('-p')[0]
       runVideoImportInBackground({
         dbVideoId: created.id,
+        sourceType: 'bilibili',
         videoId: bvid,
         sourceUrl: item.sourceUrl,
         service: VideoService.Bilibili,

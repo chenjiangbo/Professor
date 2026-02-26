@@ -1,17 +1,7 @@
-import { createOpenAI } from '@ai-sdk/openai'
-import { generateText } from 'ai'
 import { normalizeInterpretationMode, type InterpretationMode } from '~/lib/interpretationMode'
 import { limitTranscriptByteLength } from '~/lib/openai/getSmallSizeTranscripts'
-
-const baseURL = (process.env.LLM_BASE_URL_DEV || process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(
-  /\/+$/,
-  '',
-)
-
-const openai = createOpenAI({
-  baseURL,
-  apiKey: process.env.LLM_API_KEY || '',
-})
+import { generateText } from 'ai'
+import { createVertexProvider, resolveVertexFallbackModel, resolveVertexModel } from '~/lib/ai/vertex'
 
 type OutlineChapter = {
   title: string
@@ -68,21 +58,20 @@ function buildSummaryFromChapters(overview: string, chapters: GeneratedChapter[]
 async function generateCoverageMap(
   title: string,
   transcript: string,
-  modelName: string,
+  model: any,
+  fallbackModel: any | null,
   mode: InterpretationMode,
 ): Promise<CoverageResult> {
-  const system =
-    '你是一位知识压缩助手。任务是从原始字幕提取后续解读必须覆盖的关键信息点。忽略寒暄、重复和口头语。你必须只输出 JSON。'
   const isDetailed = mode === 'detailed'
-  const pointRange = isDetailed ? '12-30' : '8-20'
 
   const buildPrompt = (retry: boolean) =>
     [
+      '你是一位知识压缩助手。任务是从原始字幕提取后续解读必须覆盖的关键信息点。忽略寒暄、重复和口头语。',
       `视频标题：${title}`,
       '',
       '输出要求（中文）：',
       '1) one_sentence_summary：一句话概括核心论点。',
-      `2) coverage_points：提取必须覆盖的关键信息点列表（${pointRange}条，尽量完整但不啰嗦）。`,
+      '2) coverage_points：提取核心信息点列表。请根据视频的实际信息密度动态决定条目数量（通常在10到30条之间）。不要为了凑数而拆分，也不要遗漏核心推导过程。',
       isDetailed ? '2.1) 详解模式下请优先保留数据、案例、论据与推导链中的细节点。' : '',
       '3) 仅输出 JSON，不要输出任何额外文字。',
       '4) JSON 结构：{"one_sentence_summary":"", "coverage_points":[""]}',
@@ -96,16 +85,36 @@ async function generateCoverageMap(
 
   let lastRaw = ''
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { text } = await generateText({
-      model: openai.chat(modelName),
-      system,
-      prompt: buildPrompt(attempt > 0),
-      temperature: 0.2,
-      maxOutputTokens: isDetailed ? 5000 : 3000,
-    })
-    lastRaw = text
-    const parsed = safeParseCoverage(text)
-    if (parsed) return parsed
+    try {
+      const { text } = await generateText({
+        model,
+        prompt: buildPrompt(attempt > 0),
+        temperature: 0.2,
+        maxOutputTokens: isDetailed ? 5000 : 3000,
+      })
+      lastRaw = text
+      const parsed = safeParseCoverage(text)
+      if (parsed) return parsed
+    } catch (e: any) {
+      if (fallbackModel && isTransientConnectionError(e)) {
+        try {
+          const { text } = await generateText({
+            model: fallbackModel,
+            prompt: buildPrompt(attempt > 0),
+            temperature: 0.2,
+            maxOutputTokens: isDetailed ? 5000 : 3000,
+          })
+          lastRaw = text
+          const parsed = safeParseCoverage(text)
+          if (parsed) return parsed
+        } catch (fallbackError: any) {
+          throw new Error(
+            `Coverage model call failed: primary=${extractModelError(e)}; fallback=${extractModelError(fallbackError)}`,
+          )
+        }
+      }
+      throw new Error(`Coverage model call failed: ${extractModelError(e)}`)
+    }
   }
 
   throw new Error(`Failed to parse coverage JSON after retry. Raw head: ${String(lastRaw).slice(0, 180)}`)
@@ -115,7 +124,8 @@ async function generateFullArticle(
   title: string,
   transcript: string,
   coveragePoints: string[],
-  modelName: string,
+  model: any,
+  fallbackModel: any | null,
   mode: InterpretationMode,
 ): Promise<string> {
   const isDetailed = mode === 'detailed'
@@ -129,8 +139,8 @@ async function generateFullArticle(
       '2) 忠于字幕事实，不编造字幕中不存在的信息。',
       '3) 允许补充必要背景解释，但不得偏离主题。',
       '4) 全文要一气呵成，段间有自然过渡，避免拼接感。',
-      '5) 禁止任何寒暄、自我介绍、模板开场（例如“你好，我是……”）。',
-      '6) 不要机械套用固定子结构，不要每章同构。',
+      '5) 文章风格：请像一位经验丰富的专栏作家一样行文。语言生动流畅，段落之间要有明确的逻辑承接（如因果、转折、递进），绝不能像机器列大纲一样生硬。',
+      '6) 富文本排版：充分利用 Markdown 提升阅读体验。使用加粗强调核心概念或金句；遇到关键语录、重要数据结论时，使用引用块（>）高亮；适当使用无序列表（-）或有序列表（1.）梳理并列论点，但不要让全文变成纯列表。',
       isDetailed
         ? '7) 使用 Markdown，按逻辑给出 4-8 个二级标题（##）组织全文，每节风格可以不同但要连贯。'
         : '7) 使用 Markdown，给出 3-6 个二级标题（##）组织全文，保持自然阅读节奏。',
@@ -149,15 +159,35 @@ async function generateFullArticle(
       .join('\n')
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { text } = await generateText({
-      model: openai.chat(modelName),
-      prompt: buildPrompt(attempt > 0),
-      temperature: 0.4,
-      maxOutputTokens: isDetailed ? 12000 : 6000,
-    })
+    try {
+      const { text } = await generateText({
+        model,
+        prompt: buildPrompt(attempt > 0),
+        temperature: 0.4,
+        maxOutputTokens: isDetailed ? 12000 : 6000,
+      })
 
-    const normalized = String(text || '').trim()
-    if (normalized) return normalized
+      const normalized = String(text || '').trim()
+      if (normalized) return normalized
+    } catch (e: any) {
+      if (fallbackModel && isTransientConnectionError(e)) {
+        try {
+          const { text } = await generateText({
+            model: fallbackModel,
+            prompt: buildPrompt(attempt > 0),
+            temperature: 0.4,
+            maxOutputTokens: isDetailed ? 12000 : 6000,
+          })
+          const normalized = String(text || '').trim()
+          if (normalized) return normalized
+        } catch (fallbackError: any) {
+          throw new Error(
+            `Article model call failed: primary=${extractModelError(e)}; fallback=${extractModelError(fallbackError)}`,
+          )
+        }
+      }
+      throw new Error(`Article model call failed: ${extractModelError(e)}`)
+    }
   }
 
   throw new Error('Empty full-article interpretation from model')
@@ -246,20 +276,23 @@ export async function generateVideoInterpretation(
   options?: { onStage?: StageHook; mode?: InterpretationMode },
 ): Promise<VideoInterpretationResult> {
   const cleanTitle = String(title || 'Untitled video').trim()
-  const modelName = process.env.LLM_MODEL || 'gpt-4o-mini'
+  const vertex = createVertexProvider()
+  const model = vertex(resolveVertexModel())
+  const fallbackModelName = resolveVertexFallbackModel()
+  const fallbackModel = fallbackModelName ? vertex(fallbackModelName) : null
   const mode = normalizeInterpretationMode(options?.mode)
   const cleanTranscript = normalizeTranscript(transcript, mode)
 
   await options?.onStage?.('outline')
   const coverage = await withTimeout(
-    generateCoverageMap(cleanTitle, cleanTranscript, modelName, mode),
+    generateCoverageMap(cleanTitle, cleanTranscript, model, fallbackModel, mode),
     90_000,
     'coverage generation timeout',
   )
 
   await options?.onStage?.('explaining')
   const article = await withTimeout(
-    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, modelName, mode),
+    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, model, fallbackModel, mode),
     mode === 'detailed' ? 240_000 : 150_000,
     'full article generation timeout',
   )
@@ -301,6 +334,30 @@ function safeParseCoverage(raw: string): CoverageResult | null {
     if (parsed) return parsed
   }
   return null
+}
+
+function extractModelError(e: any): string {
+  const message = String(e?.message || 'Unknown error')
+  const cause = e?.cause || {}
+  const body = cause?.responseBody || e?.responseBody || ''
+  const status = cause?.statusCode || e?.statusCode || ''
+  const detail = body ? ` body=${String(body).slice(0, 600)}` : ''
+  const code = status ? ` status=${status}` : ''
+  return `${message}${code}${detail}`
+}
+
+function isTransientConnectionError(e: any): boolean {
+  const message = String(e?.message || '')
+  const causeMessage = String(e?.cause?.message || '')
+  const combined = `${message} ${causeMessage}`.toLowerCase()
+  return (
+    combined.includes('cannot connect to api') ||
+    combined.includes('other side closed') ||
+    combined.includes('socket hang up') ||
+    combined.includes('econnreset') ||
+    combined.includes('fetch failed') ||
+    combined.includes('network')
+  )
 }
 
 function toJsonCandidates(raw: string): string[] {

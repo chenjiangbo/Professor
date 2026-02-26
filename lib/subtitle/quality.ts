@@ -113,21 +113,9 @@ export function validateSubtitleQuality(params: { title: string; transcript: str
   const matched = keywords.filter((k) => normalizedTranscript.includes(k))
   const hitRatio = matched.length / keywords.length
 
-  const failed = matched.length < 1
-  if (failed) {
-    return {
-      ok: false,
-      reason: `Subtitle-content mismatch: title keywords hit ${matched.length}/${
-        keywords.length
-      } (ratio ${hitRatio.toFixed(2)}).`,
-      keywordMatchCount: matched.length,
-      keywordCount: keywords.length,
-    }
-  }
-
   return {
     ok: true,
-    reason: `Subtitle quality passed: title keywords hit ${matched.length}/${keywords.length}.`,
+    reason: `Subtitle-content keyword hit ${matched.length}/${keywords.length} (ratio ${hitRatio.toFixed(2)}).`,
     keywordMatchCount: matched.length,
     keywordCount: keywords.length,
   }

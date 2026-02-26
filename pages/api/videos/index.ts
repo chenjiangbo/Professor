@@ -48,6 +48,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const created = await createVideo({
       notebookId,
       platform: VideoService.Bilibili,
+      sourceType: 'bilibili',
+      generationProfile: 'full_interpretation',
       externalId: videoId,
       sourceUrl: url,
       title: 'Importing...',
@@ -57,6 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     runVideoImportInBackground({
       dbVideoId: created.id,
+      sourceType: 'bilibili',
       videoId,
       sourceUrl: url,
       service: VideoService.Bilibili,

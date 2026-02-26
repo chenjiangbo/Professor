@@ -1,26 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { streamText, convertToModelMessages, pipeUIMessageStreamToResponse, type UIMessage } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
 import { randomUUID } from 'crypto'
 import { pool } from '~/lib/db'
 import { getVideo, listVideos } from '~/lib/repo'
-
-// Initialize OpenAI client with custom baseURL (LiteLLM)
-const baseURL = (process.env.LLM_BASE_URL_DEV || process.env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(
-  /\/+$/,
-  '',
-)
-
-console.log(`[Chat API] Initializing with baseURL: ${baseURL}`)
-
-const openai = createOpenAI({
-  baseURL,
-  apiKey: process.env.LLM_API_KEY || 'sk-placeholder',
-})
+import { createVertexProvider, resolveVertexModel } from '~/lib/ai/vertex'
 
 function buildVideoContext(video: any): string {
   const title = String(video?.title || '').trim()
   const summary = String(video?.summary || '').trim()
+  const transcript = String(video?.transcript || '').trim()
   const chapters = Array.isArray(video?.chapters) ? video.chapters : []
   const chapterText = chapters
     .map((c: any, idx: number) => {
@@ -30,17 +18,72 @@ function buildVideoContext(video: any): string {
     })
     .join('\n\n')
 
-  const raw = [`Title: ${title}`, summary ? `Summary:\n${summary}` : '', chapterText ? `Chapters:\n${chapterText}` : '']
+  return [
+    `Title: ${title}`,
+    summary ? `Summary:\n${summary}` : '',
+    chapterText ? `Chapters:\n${chapterText}` : '',
+    transcript ? `Source Text:\n${transcript}` : '',
+  ]
     .filter(Boolean)
     .join('\n\n')
+}
 
-  // Hard cap context size to avoid prompt overrun.
-  return raw.slice(0, 30000)
+function buildPromptPrefix(context: string) {
+  return `
+你是一位深受学生喜爱的、博学且极具启发性的深度学习导师。
+
+【当前学习资料】：
+${context || '(当前未选择资料，上下文为空)'}
+
+【你的辅导哲学】：
+1. 融会贯通：解答用户疑问时，请先从【当前学习资料】中提取核心观点作为解答基石。
+2. 无界知识：如果用户提问超出资料范围（例如追问底层原理、实操方法或最新案例），不要回答“资料未提及”。请直接调动你的知识储备补充解答。
+3. 透明交流：在自然流畅的对话中，让用户感知知识来源。例如：“视频中提到了...，另外结合目前研究...”
+4. 拒绝机械：像真正聪明的人类导师一样交流。可使用恰当比喻解释复杂概念。
+5. 事实求证：当涉及具体数据、文献、政策或时效性事件时，请明确说明结论依据，避免武断表达。
+
+【输出要求】：
+- 回答使用清晰的 Markdown。
+- 直接输出最终答案，不要输出你的内部思考、草稿、评估过程、查核清单或“我将如何回答”的计划。
+- 不要输出类似“测评：”“结构化草稿：”“Let's refine...”“Response draft...”这类中间过程文本。
+`.trim()
+}
+
+function normalizeModelName(input: unknown) {
+  const requested = String(input || '').trim()
+  const fallback = resolveVertexModel()
+  const model = requested || fallback
+  return model.replace(/^google\//, '')
+}
+
+function normalizeIncomingMessages(messages: UIMessage[]) {
+  const allowedRoles = new Set(['system', 'user', 'assistant', 'tool'])
+  return (Array.isArray(messages) ? messages : [])
+    .map((msg: any, idx: number) => {
+      const rawRole = String(msg?.role || '').trim()
+      const role = rawRole === 'developer' ? 'system' : rawRole
+      if (!allowedRoles.has(role)) return null
+
+      const rawParts = Array.isArray(msg?.parts) ? msg.parts : []
+      const parts = rawParts.length
+        ? rawParts
+        : typeof msg?.content === 'string' && msg.content.trim()
+        ? [{ type: 'text', text: msg.content }]
+        : []
+
+      if (!parts.length && role !== 'tool') return null
+
+      return {
+        ...msg,
+        id: String(msg?.id || `m-${Date.now()}-${idx}`),
+        role,
+        parts,
+      }
+    })
+    .filter(Boolean) as UIMessage[]
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('[Chat API] Handler called')
-
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
     return
@@ -53,30 +96,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       videoIds?: string[]
     }
 
-    // Decide model per mode
-    const model = !notebookId
-      ? process.env.AI_CHAT_MODEL || process.env.LLM_MODEL || 'gpt-4o-mini'
-      : process.env.LLM_MODEL || 'gpt-4o-mini'
+    const model = normalizeModelName((req.body as any)?.model)
+    const vertex = createVertexProvider()
 
-    console.log('[Chat API] Request:', {
-      notebookId,
-      videoCount: videoIds?.length,
-      messageCount: messages?.length,
-      model,
-    })
+    const safeMessages = normalizeIncomingMessages(Array.isArray(messages) ? messages : [])
+    const modelMessages = convertToModelMessages(safeMessages)
 
-    // Convert UIMessage[] to ModelMessage[] (parts[] -> content format)
-    const modelMessages = convertToModelMessages(messages)
-
-    // --- Labs mode: no notebookId ---
     if (!notebookId) {
-      console.log('[Chat API] Labs mode')
-
       const result = streamText({
-        model: openai.chat(model),
+        model: vertex(model),
         messages: modelMessages,
       })
-
       pipeUIMessageStreamToResponse({
         response: res,
         status: 200,
@@ -85,10 +115,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
-    // --- Notebook mode: with video context ---
-    console.log('[Chat API] Notebook mode')
-
-    // Fetch video context
     let videos: any[] = []
     if (Array.isArray(videoIds) && videoIds.length > 0) {
       videos = (await Promise.all(videoIds.map((id: string) => getVideo(id)))).filter(Boolean) as any[]
@@ -97,17 +123,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const context = videos.map((v: any) => buildVideoContext(v)).join('\n\n---\n\n')
+    const promptPrefix = buildPromptPrefix(context)
 
-    const systemMessage = `You are a helpful assistant. Answer questions based on the provided video interpretation context (title, summary, chapters).\nDo not invent facts not grounded in this context. If context is insufficient, say what is missing.\n\nContext:\n${context}`
-
-    // Extract last user message content for DB
-    const lastMessage = messages[messages.length - 1]
+    const lastMessage = safeMessages[safeMessages.length - 1]
     if (lastMessage && lastMessage.role === 'user') {
       const textContent =
         lastMessage.parts
           ?.filter((p: any) => p.type === 'text')
           .map((p: any) => p.text)
-          .join('') || ''
+          .join('') || String((lastMessage as any).content || '')
 
       if (textContent) {
         try {
@@ -121,27 +145,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Stream response
     const result = streamText({
-      model: openai.chat(model),
-      system: systemMessage,
+      model: vertex(model),
+      system: promptPrefix,
       messages: modelMessages,
-      async onFinish({ text }) {
-        if (text) {
-          try {
-            await pool.query(
-              `INSERT INTO chat_messages (id, notebook_id, role, content, video_ids) VALUES ($1, $2, $3, $4, $5)`,
-              [randomUUID(), notebookId, 'assistant', text, JSON.stringify(videoIds || [])],
-            )
-            console.log('[Chat API] Saved assistant response')
-          } catch (e) {
-            console.error('[Chat API] DB Save Error (Assistant):', e)
-          }
+      async onFinish({ text }: { text?: string }) {
+        if (!text) return
+        try {
+          await pool.query(
+            `INSERT INTO chat_messages (id, notebook_id, role, content, video_ids) VALUES ($1, $2, $3, $4, $5)`,
+            [randomUUID(), notebookId, 'assistant', text, JSON.stringify(videoIds || [])],
+          )
+        } catch (e) {
+          console.error('[Chat API] DB Save Error (Assistant):', e)
         }
       },
     })
 
-    // Use pipeUIMessageStreamToResponse for Pages Router
     pipeUIMessageStreamToResponse({
       response: res,
       status: 200,

@@ -51,16 +51,16 @@ export default function LabsAIChat() {
       <main className={containerStyle}>
         <header className="flex flex-col gap-2">
           <div className="text-xs uppercase tracking-[0.2em] text-slate-400">Labs</div>
-          <h1 className="text-2xl font-semibold text-white">Vision Chat · Qwen</h1>
+          <h1 className="text-2xl font-semibold text-white">Vision Chat · Vertex Gemini</h1>
           <p className="text-sm text-slate-400">
-            Uses LiteLLM Proxy → Ollama (qwen-vl). This page is isolated from the main app so you can iterate safely.
+            Uses Google Vertex AI directly. This page is isolated from the main app so you can iterate safely.
           </p>
           <div className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
             <label className="flex items-center gap-2">
               <span className="text-slate-400">Model</span>
               <input
                 className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100 outline-none focus:border-sky-500"
-                placeholder="ollama/qwen3-vl:30b"
+                placeholder="google/gemini-2.5-pro"
                 value={model || ''}
                 onChange={(e) => setModel(e.target.value || undefined)}
               />
@@ -76,7 +76,7 @@ export default function LabsAIChat() {
           <div className="flex flex-col gap-3 overflow-y-auto">
             {messages.length === 0 && (
               <div className="rounded-lg border border-dashed border-slate-700 px-4 py-6 text-sm text-slate-400">
-                Send a message to start chatting with qwen-vl through LiteLLM.
+                Send a message to start chatting with Vertex Gemini.
               </div>
             )}
             {messages.map((m: any, idx: number) => (

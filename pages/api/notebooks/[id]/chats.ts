@@ -27,7 +27,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                      ORDER BY created_at ASC`,
             [id],
           )
-      res.status(200).json(result.rows)
+      const shaped = result.rows.map((row: any) => ({
+        id: row.id,
+        role: row.role,
+        content: row.content,
+        parts: [{ type: 'text', text: row.content }],
+        created_at: row.created_at,
+      }))
+      res.status(200).json(shaped)
     } catch (e: any) {
       console.error('Fetch chats error', e)
       res.status(500).json({ error: e.message })
