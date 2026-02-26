@@ -63,6 +63,7 @@ async function generateCoverageMap(
   mode: InterpretationMode,
 ): Promise<CoverageResult> {
   const isDetailed = mode === 'detailed'
+  const coverageMaxOutputTokens = isDetailed ? 1800 : 1200
 
   const buildPrompt = (retry: boolean) =>
     [
@@ -90,7 +91,7 @@ async function generateCoverageMap(
         model,
         prompt: buildPrompt(attempt > 0),
         temperature: 0.2,
-        maxOutputTokens: isDetailed ? 5000 : 3000,
+        maxOutputTokens: coverageMaxOutputTokens,
       })
       lastRaw = text
       const parsed = safeParseCoverage(text)
@@ -102,7 +103,7 @@ async function generateCoverageMap(
             model: fallbackModel,
             prompt: buildPrompt(attempt > 0),
             temperature: 0.2,
-            maxOutputTokens: isDetailed ? 5000 : 3000,
+            maxOutputTokens: coverageMaxOutputTokens,
           })
           lastRaw = text
           const parsed = safeParseCoverage(text)
@@ -282,18 +283,20 @@ export async function generateVideoInterpretation(
   const fallbackModel = fallbackModelName ? vertex(fallbackModelName) : null
   const mode = normalizeInterpretationMode(options?.mode)
   const cleanTranscript = normalizeTranscript(transcript, mode)
+  const coverageTimeoutMs = resolveTimeoutMs('VERTEX_COVERAGE_TIMEOUT_MS', mode === 'detailed' ? 180_000 : 120_000)
+  const articleTimeoutMs = resolveTimeoutMs('VERTEX_ARTICLE_TIMEOUT_MS', mode === 'detailed' ? 240_000 : 150_000)
 
   await options?.onStage?.('outline')
   const coverage = await withTimeout(
     generateCoverageMap(cleanTitle, cleanTranscript, model, fallbackModel, mode),
-    90_000,
+    coverageTimeoutMs,
     'coverage generation timeout',
   )
 
   await options?.onStage?.('explaining')
   const article = await withTimeout(
     generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, model, fallbackModel, mode),
-    mode === 'detailed' ? 240_000 : 150_000,
+    articleTimeoutMs,
     'full article generation timeout',
   )
 
@@ -414,4 +417,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
         reject(err)
       })
   })
+}
+
+function resolveTimeoutMs(envName: string, fallbackMs: number): number {
+  const raw = process.env[envName]
+  if (!raw) return fallbackMs
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${envName} must be a positive number in milliseconds`)
+  }
+  return Math.floor(parsed)
 }
