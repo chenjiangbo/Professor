@@ -56,7 +56,7 @@ ENV PORT 3000
 RUN addgroup -g 1001 -S nodejs &&\
     adduser -S nextjs -u 1001
 
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg libc6-compat gcompat
 
 COPY --from=builder /usr/local/bin/BBDown /usr/local/bin/BBDown
 
