@@ -37,13 +37,11 @@ jobs:
             if [ ! -d .git ]; then
               git init
               git remote add origin https://github.com/${{ github.repository }}.git
-              git fetch --depth 1 origin main
-              git checkout -B main origin/main
-            else
-              git fetch origin main
-              git checkout main
-              git pull --ff-only origin main
             fi
+
+            git fetch --depth 1 origin main
+            git checkout -f -B main origin/main
+            git reset --hard origin/main
 
             docker compose -f docker-compose.prod.yml build professor
             docker compose -f docker-compose.prod.yml up -d professor
