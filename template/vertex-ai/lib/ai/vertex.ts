@@ -35,9 +35,29 @@ export function resolveVertexModel() {
     process.env.VERTEX_MODEL ||
     process.env.GOOGLE_VERTEX_MODEL ||
     'gemini-2.5-pro'
-  return String(model)
-    .trim()
-    .replace(/^google\//, '')
+  return normalizeVertexModelName(model)
+}
+
+export function resolveVertexFallbackModel() {
+  const model =
+    process.env.VERTEX_FALLBACK_MODEL ||
+    process.env.GOOGLE_VERTEX_FALLBACK_MODEL ||
+    (resolveVertexModel() === 'gemini-2.5-pro' ? '' : 'gemini-2.5-pro')
+  return normalizeVertexModelName(model || '')
+}
+
+export function resolveVertexInterpretationCoverageModel() {
+  const model =
+    process.env.VERTEX_INTERPRETATION_COVERAGE_MODEL ||
+    process.env.VERTEX_COVERAGE_MODEL ||
+    process.env.VERTEX_OUTLINE_MODEL ||
+    'gemini-2.5-pro'
+  return normalizeVertexModelName(model)
+}
+
+export function resolveVertexInterpretationArticleModel() {
+  const model = process.env.VERTEX_INTERPRETATION_ARTICLE_MODEL || process.env.VERTEX_ARTICLE_MODEL || 'gemini-2.5-pro'
+  return normalizeVertexModelName(model)
 }
 
 export function createVertexProvider(): GoogleVertexProvider {
@@ -51,4 +71,10 @@ export function createVertexProvider(): GoogleVertexProvider {
     project,
     location,
   })
+}
+
+function normalizeVertexModelName(model: unknown) {
+  return String(model || '')
+    .trim()
+    .replace(/^google\//, '')
 }

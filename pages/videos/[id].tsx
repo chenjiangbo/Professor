@@ -79,7 +79,7 @@ const VideoDetail: NextPage = () => {
     try {
       const res = await fetch(`/api/videos/subtitle?id=${videoId}`)
       if (!res.ok) {
-        alert('No transcript available to export.')
+        alert('没有可导出的原文内容。')
         setDownloading(false)
         return
       }
@@ -93,7 +93,7 @@ const VideoDetail: NextPage = () => {
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e) {
-      alert('Download failed.')
+      alert('下载失败。')
     } finally {
       setDownloading(false)
     }
@@ -102,7 +102,7 @@ const VideoDetail: NextPage = () => {
   const handleAsk = async () => {
     if (!question || !videoId) return
     setAsking(true)
-    setAnswer('Generating...')
+    setAnswer('生成中...')
     const res = await fetch('/api/qa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -267,7 +267,7 @@ const VideoDetail: NextPage = () => {
               </h1>
               <p className="mt-2 text-sm text-text-muted dark:text-white/60">
                 {video?.status === 'processing' ? 'Transcripts/summary are being generated, please wait...' : ''}
-                {video?.status === 'error' ? 'Import failed, please try again.' : ''}
+                {video?.status === 'error' ? '导入失败，请重试。' : ''}
               </p>
             </section>
 
@@ -284,9 +284,7 @@ const VideoDetail: NextPage = () => {
                     </p>
                   ))
                 ) : (
-                  <p className="text-text-muted dark:text-white/60">
-                    Waiting for summary. The video is still processing.
-                  </p>
+                  <p className="text-text-muted dark:text-white/60">正在等待总结生成，视频仍在处理中。</p>
                 )}
               </div>
             </section>
@@ -295,7 +293,7 @@ const VideoDetail: NextPage = () => {
               <h2 className="mb-4 text-lg font-semibold text-text-main dark:text-white">Chapter Outline</h2>
               <div className="flex flex-col gap-2">
                 {currentChapter.length === 0 ? (
-                  <p className="text-sm text-text-muted dark:text-white/60">No chapter info yet.</p>
+                  <p className="text-sm text-text-muted dark:text-white/60">暂未生成章节信息。</p>
                 ) : (
                   currentChapter.map((item, idx) => (
                     <div

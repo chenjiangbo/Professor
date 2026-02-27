@@ -14,18 +14,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: 'id required' })
+    res.status(400).json({ error: '缺少参数 id' })
     return
   }
 
   const current = await getVideo(id)
   if (!current) {
-    res.status(404).json({ error: 'not found' })
+    res.status(404).json({ error: '资源不存在' })
     return
   }
 
   if (String(current.status || '').startsWith('processing')) {
-    res.status(409).json({ error: 'Video is already processing.' })
+    res.status(409).json({ error: '该资源正在处理中，请稍后重试。' })
     return
   }
 
@@ -39,7 +39,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const bvid = externalId.split('-p')[0] || externalId
   const pageNumber = extractPageNumberFromUrl(sourceUrl)
   const interpretationMode = normalizeInterpretationMode(requestedMode || current.interpretation_mode)
-  const sourceType = (String(current.source_type || '').toLowerCase() || 'bilibili') as 'bilibili' | 'text' | 'file'
+  const sourceType = (String(current.source_type || '').toLowerCase() || 'bilibili') as
+    | 'bilibili'
+    | 'youtube'
+    | 'text'
+    | 'file'
   const transcript = String(current.transcript || '').trim()
 
   const reset = await updateVideo(id, {
@@ -54,13 +58,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     last_error: null,
   })
 
-  if (sourceType === 'bilibili') {
+  if (sourceType === 'bilibili' || sourceType === 'youtube') {
     runVideoImportInBackground({
       dbVideoId: id,
-      sourceType: 'bilibili',
+      sourceType,
       videoId: bvid,
       sourceUrl,
-      service: VideoService.Bilibili,
+      service: sourceType === 'bilibili' ? VideoService.Bilibili : VideoService.YouTube,
       pageNumber,
       interpretationMode,
     })
@@ -68,16 +72,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!transcript) {
       await updateVideo(id, {
         status: 'error',
-        summary: 'Re-import failed: source text is empty.',
-        last_error: 'Source text is empty.',
+        summary: '重新导入失败：原文内容为空。',
+        last_error: '原文内容为空。',
       })
-      res.status(422).json({ error: 'Re-import failed: source text is empty.' })
+      res.status(422).json({ error: '重新导入失败：原文内容为空。' })
       return
     }
     runVideoImportInBackground({
       dbVideoId: id,
       sourceType,
-      rawTitle: String(current.title || 'Imported source'),
+      rawTitle: String(current.title || '导入内容'),
       rawText: transcript,
       sourceMime: String(current.source_mime || ''),
       generationProfile: interpretationMode === 'none' ? 'import_only' : 'full_interpretation',

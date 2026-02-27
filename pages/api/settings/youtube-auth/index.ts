@@ -1,25 +1,23 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-  clearBBDownAuth,
-  getCookieStrength,
-  getBBDownAuthRecord,
-  getDecryptedBBDownCookie,
+  clearYouTubeAuth,
+  getDecryptedYouTubeAuth,
+  getYouTubeAuthRecord,
   maskCredential,
-  setBBDownAuth,
-  updateBBDownAuthValidation,
-  validateBBDownAuthCookie,
-  type BBDownAuthMode,
-} from '~/lib/bbdown/auth'
+  setYouTubeAuth,
+  updateYouTubeAuthValidation,
+  validateYouTubeAuthLocal,
+  type YouTubeAuthMode,
+} from '~/lib/youtube/auth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
-    const record = await getBBDownAuthRecord()
+    const record = await getYouTubeAuthRecord()
     if (!record) {
       res.status(200).json({ configured: false })
       return
     }
-    const decrypted = await getDecryptedBBDownCookie()
-    const strength = decrypted ? getCookieStrength(decrypted) : null
+    const decrypted = await getDecryptedYouTubeAuth()
     res.status(200).json({
       configured: true,
       mode: record.mode,
@@ -27,16 +25,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updatedAt: record.updatedAt,
       lastValidatedAt: record.lastValidatedAt || null,
       lastError: record.lastError || null,
-      maskedCredential: maskCredential(decrypted),
-      cookieStrength: strength,
+      maskedCredential: maskCredential(decrypted?.value || ''),
     })
     return
   }
 
   if (req.method === 'POST') {
     const { mode, value } = req.body || {}
-    if (mode !== 'sessdata' && mode !== 'cookie') {
-      res.status(400).json({ error: 'mode 只能是 "sessdata" 或 "cookie"' })
+    if (mode !== 'cookie' && mode !== 'cookies_txt') {
+      res.status(400).json({ error: 'mode 只能是 "cookie" 或 "cookies_txt"' })
       return
     }
     if (!value || typeof value !== 'string') {
@@ -45,16 +42,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      await setBBDownAuth({ mode: mode as BBDownAuthMode, value })
-      const cookie = await getDecryptedBBDownCookie()
-      const validation = await validateBBDownAuthCookie(cookie || '')
-      const strength = cookie ? getCookieStrength(cookie) : null
-      await updateBBDownAuthValidation(
+      await setYouTubeAuth({ mode: mode as YouTubeAuthMode, value })
+      const validation = validateYouTubeAuthLocal({ mode: mode as YouTubeAuthMode, value })
+      await updateYouTubeAuthValidation(
         validation.valid ? 'valid' : 'invalid',
         validation.valid ? undefined : validation.message,
       )
-
-      const record = await getBBDownAuthRecord()
+      const record = await getYouTubeAuthRecord()
       res.status(200).json({
         ok: true,
         configured: true,
@@ -62,16 +56,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status: record?.status,
         lastValidatedAt: record?.lastValidatedAt || null,
         validation,
-        cookieStrength: strength,
       })
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || '保存 BBDown 登录凭据失败' })
+      res.status(500).json({ error: e?.message || '保存 YouTube 登录凭据失败' })
     }
     return
   }
 
   if (req.method === 'DELETE') {
-    await clearBBDownAuth()
+    await clearYouTubeAuth()
     res.status(200).json({ ok: true })
     return
   }

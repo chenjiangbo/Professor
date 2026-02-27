@@ -4,7 +4,7 @@ import { listVideos } from '~/lib/repo'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: 'id required' })
+    res.status(400).json({ error: '缺少参数 id' })
     return
   }
   if (req.method === 'GET') {

@@ -12,7 +12,7 @@ ENV PORT 3000
 
 # build prerequisites for native deps (e.g., bufferutil) + npm 网络重试/镜像
 RUN apk add --no-cache python3 make g++ \
-    && apk add --no-cache curl unzip ffmpeg \
+    && apk add --no-cache curl unzip ffmpeg yt-dlp \
     && apk add --no-cache gcompat \
     && npm config set fetch-retries 5 \
     && npm config set fetch-retry-factor 2 \

@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     const { notebookId, videoId, title, body } = req.body || {}
     if (!notebookId || !body) {
-      res.status(400).json({ error: 'notebookId and body required' })
+      res.status(400).json({ error: '缺少必要参数：notebookId 和 body' })
       return
     }
     const created = await addNote({ notebookId, videoId, title, body })

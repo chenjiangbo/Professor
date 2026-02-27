@@ -17,7 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     const { mode } = req.body || {}
     if (mode !== 'concise' && mode !== 'detailed') {
-      res.status(400).json({ error: 'mode must be "concise" or "detailed"' })
+      res.status(400).json({ error: 'mode 只能是 "concise" 或 "detailed"' })
       return
     }
     await setAppSetting(DEFAULT_INTERPRETATION_MODE_SETTING_KEY, mode)

@@ -51,13 +51,12 @@ export function resolveVertexInterpretationCoverageModel() {
     process.env.VERTEX_INTERPRETATION_COVERAGE_MODEL ||
     process.env.VERTEX_COVERAGE_MODEL ||
     process.env.VERTEX_OUTLINE_MODEL ||
-    'gemini-2.5-flash'
+    'gemini-2.5-pro'
   return normalizeVertexModelName(model)
 }
 
 export function resolveVertexInterpretationArticleModel() {
-  const model =
-    process.env.VERTEX_INTERPRETATION_ARTICLE_MODEL || process.env.VERTEX_ARTICLE_MODEL || resolveVertexModel()
+  const model = process.env.VERTEX_INTERPRETATION_ARTICLE_MODEL || process.env.VERTEX_ARTICLE_MODEL || 'gemini-2.5-pro'
   return normalizeVertexModelName(model)
 }
 

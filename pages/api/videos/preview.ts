@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildBilibiliPreviewItems, isBilibiliUrl, resolveBilibiliUrl } from '~/lib/bilibili/preview'
+import { buildYouTubePreviewItems, isYouTubeUrl } from '~/lib/youtube/preview'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -10,17 +11,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { url } = req.body || {}
   if (!url) {
-    res.status(400).json({ error: 'url required' })
+    res.status(400).json({ error: '缺少参数 url' })
     return
   }
-  if (!isBilibiliUrl(url)) {
-    res.status(400).json({ error: 'Only Bilibili URLs are supported now.' })
+  if (!isBilibiliUrl(url) && !isYouTubeUrl(url)) {
+    res.status(400).json({ error: '当前仅支持 B 站或 YouTube URL' })
     return
   }
 
   try {
-    const resolvedUrl = await resolveBilibiliUrl(url)
-    const items = await buildBilibiliPreviewItems(resolvedUrl)
+    const items = isBilibiliUrl(url)
+      ? await buildBilibiliPreviewItems(await resolveBilibiliUrl(url))
+      : await buildYouTubePreviewItems(url)
     res.status(200).json({
       items,
     })

@@ -12,18 +12,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { detailLevel = 600, showEmoji = true, outlineLevel = 1, sentenceNumber = 5, outputLanguage } = req.body || {}
 
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: 'id required' })
+    res.status(400).json({ error: '缺少参数 id' })
     return
   }
 
   const video = await getVideo(id)
   if (!video) {
-    res.status(404).json({ error: 'not found' })
+    res.status(404).json({ error: '资源不存在' })
     return
   }
 
   if (!video.transcript) {
-    res.status(400).json({ error: 'No transcript available to summarize' })
+    res.status(400).json({ error: '无可用于总结的原文内容' })
     return
   }
 
@@ -35,8 +35,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       summary = interpretation.summary
       chapters = JSON.stringify(interpretation.chapters)
     } catch (e: any) {
-      const message = e?.message || 'Unknown outline error'
-      await updateVideo(id, { status: 'error', last_error: message, summary: `Outline generation failed: ${message}` })
+      const message = e?.message || '大纲生成未知错误'
+      await updateVideo(id, { status: 'error', last_error: message, summary: `大纲生成失败：${message}` })
       res.status(422).json({ error: message })
       return
     }

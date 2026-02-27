@@ -18,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     const { title, description } = req.body || {}
     if (!title) {
-      res.status(400).json({ error: 'title required' })
+      res.status(400).json({ error: '缺少参数 title' })
       return
     }
     const created = await createNotebook({ title, description })

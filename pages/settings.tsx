@@ -12,6 +12,12 @@ const SettingsPage: NextPage = () => {
   const [mode, setMode] = useState<'sessdata' | 'cookie'>('sessdata')
   const [value, setValue] = useState('')
   const [authState, setAuthState] = useState<any>(null)
+  const [ytMode, setYtMode] = useState<'cookie' | 'cookies_txt'>('cookie')
+  const [ytValue, setYtValue] = useState('')
+  const [ytAuthState, setYtAuthState] = useState<any>(null)
+  const [ytSaving, setYtSaving] = useState(false)
+  const [ytValidating, setYtValidating] = useState(false)
+  const [ytMessage, setYtMessage] = useState('')
   const [defaultInterpretationMode, setDefaultInterpretationMode] = useState<'concise' | 'detailed'>('concise')
 
   const loadAuthState = async () => {
@@ -40,8 +46,20 @@ const SettingsPage: NextPage = () => {
     }
   }
 
+  const loadYouTubeAuthState = async () => {
+    try {
+      const res = await fetch('/api/settings/youtube-auth')
+      const json = await res.json()
+      setYtAuthState(json)
+      setYtMode(json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie')
+    } catch {
+      setYtAuthState({ configured: false })
+    }
+  }
+
   useEffect(() => {
     loadAuthState()
+    loadYouTubeAuthState()
     loadInterpretationMode()
   }, [])
 
@@ -56,9 +74,9 @@ const SettingsPage: NextPage = () => {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      setMessage('Default interpretation mode saved.')
+      setMessage('默认解读模式已保存。')
     } catch (e: any) {
-      setMessage(e?.message || 'Failed to save default interpretation mode')
+      setMessage(e?.message || '保存默认解读模式失败')
     } finally {
       setSavingInterpretationMode(false)
     }
@@ -66,7 +84,7 @@ const SettingsPage: NextPage = () => {
 
   const saveAuth = async () => {
     if (!value.trim()) {
-      setMessage('Please paste SESSDATA or cookie first.')
+      setMessage('请先粘贴 SESSDATA 或完整 Cookie。')
       return
     }
     setSaving(true)
@@ -80,17 +98,17 @@ const SettingsPage: NextPage = () => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
       const base = json?.validation?.valid
-        ? 'Saved and validated successfully.'
-        : `Saved, but validation failed: ${json?.validation?.message || 'unknown error'}`
+        ? '保存成功，凭据校验通过。'
+        : `已保存，但校验失败：${json?.validation?.message || '未知错误'}`
       const weakHint =
         json?.cookieStrength?.level === 'basic'
-          ? ' Current cookie looks basic only; full Cookie is recommended for stable subtitle fetch.'
+          ? ' 当前 Cookie 强度偏弱，建议使用完整 Cookie 以提升字幕下载稳定性。'
           : ''
       setMessage(base + weakHint)
       setValue('')
       await loadAuthState()
     } catch (e: any) {
-      setMessage(e?.message || 'Failed to save auth')
+      setMessage(e?.message || '保存登录凭据失败')
     } finally {
       setSaving(false)
     }
@@ -103,17 +121,15 @@ const SettingsPage: NextPage = () => {
       const res = await fetch('/api/settings/bbdown-auth/validate', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      const base = json?.validation?.valid
-        ? 'Credential is valid.'
-        : `Credential invalid: ${json?.validation?.message || ''}`
+      const base = json?.validation?.valid ? '凭据有效。' : `凭据无效：${json?.validation?.message || ''}`
       const weakHint =
         json?.cookieStrength?.level === 'basic'
-          ? ' Current cookie looks basic only; full Cookie is recommended for stable subtitle fetch.'
+          ? ' 当前 Cookie 强度偏弱，建议使用完整 Cookie 以提升字幕下载稳定性。'
           : ''
       setMessage(base + weakHint)
       await loadAuthState()
     } catch (e: any) {
-      setMessage(e?.message || 'Validation failed')
+      setMessage(e?.message || '凭据校验失败')
     } finally {
       setValidating(false)
     }
@@ -124,7 +140,62 @@ const SettingsPage: NextPage = () => {
     await fetch('/api/settings/bbdown-auth', { method: 'DELETE' })
     await loadAuthState()
     setValue('')
-    setMessage('Credential cleared.')
+    setMessage('登录凭据已清除。')
+  }
+
+  const saveYouTubeAuth = async () => {
+    if (!ytValue.trim()) {
+      setYtMessage('请先粘贴 YouTube Cookie 或 cookies.txt 内容。')
+      return
+    }
+    setYtSaving(true)
+    setYtMessage('')
+    try {
+      const res = await fetch('/api/settings/youtube-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: ytMode, value: ytValue }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      const base = json?.validation?.valid
+        ? 'YouTube 凭据保存成功，格式校验通过。'
+        : `YouTube 凭据已保存，但校验失败：${json?.validation?.message || '未知错误'}`
+      setYtMessage(base)
+      setYtValue('')
+      await loadYouTubeAuthState()
+    } catch (e: any) {
+      setYtMessage(e?.message || '保存 YouTube 凭据失败')
+    } finally {
+      setYtSaving(false)
+    }
+  }
+
+  const validateYouTubeAuth = async () => {
+    setYtValidating(true)
+    setYtMessage('')
+    try {
+      const res = await fetch('/api/settings/youtube-auth/validate', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      const base = json?.validation?.valid
+        ? 'YouTube 凭据有效。'
+        : `YouTube 凭据无效：${json?.validation?.message || ''}`
+      setYtMessage(base)
+      await loadYouTubeAuthState()
+    } catch (e: any) {
+      setYtMessage(e?.message || 'YouTube 凭据校验失败')
+    } finally {
+      setYtValidating(false)
+    }
+  }
+
+  const clearYouTubeAuth = async () => {
+    setYtMessage('')
+    await fetch('/api/settings/youtube-auth', { method: 'DELETE' })
+    await loadYouTubeAuthState()
+    setYtValue('')
+    setYtMessage('YouTube 凭据已清除。')
   }
 
   return (
@@ -187,7 +258,7 @@ const SettingsPage: NextPage = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-                  如果你要导入 B 站视频，请先配置 BBDown 登录凭据（推荐 Full Cookie）。
+                  如果你要导入 B 站或 YouTube 视频，请先配置对应平台的登录凭据（推荐完整 Cookie）。
                   <a className="ml-2 font-semibold underline" href="#bbdown-login">
                     跳转到配置区
                   </a>
@@ -252,7 +323,7 @@ const SettingsPage: NextPage = () => {
                             disabled={savingInterpretationMode}
                             className="flex h-9 min-w-[110px] items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
                           >
-                            {savingInterpretationMode ? 'Saving...' : 'Save mode'}
+                            {savingInterpretationMode ? '保存中...' : '保存模式'}
                           </button>
                         </div>
                       </div>
@@ -330,11 +401,11 @@ const SettingsPage: NextPage = () => {
                     <div className="space-y-4">
                       <div className="rounded-md border border-border-strong bg-white/60 p-3 text-sm dark:border-white/20 dark:bg-black/20">
                         {loading ? (
-                          <p className="text-text-muted dark:text-gray-400">Loading status...</p>
+                          <p className="text-text-muted dark:text-gray-400">加载状态中...</p>
                         ) : authState?.configured ? (
                           <div className="space-y-1">
                             <p>
-                              Status:{' '}
+                              状态：
                               <span
                                 className={
                                   authState?.status === 'valid'
@@ -347,9 +418,9 @@ const SettingsPage: NextPage = () => {
                                 {authState?.status || 'unknown'}
                               </span>
                             </p>
-                            <p>Mode: {authState?.mode}</p>
+                            <p>模式：{authState?.mode}</p>
                             <p>
-                              Cookie strength:{' '}
+                              Cookie 强度：
                               <span
                                 className={
                                   authState?.cookieStrength?.level === 'strong'
@@ -363,19 +434,19 @@ const SettingsPage: NextPage = () => {
                             {authState?.cookieStrength?.message ? (
                               <p className="text-text-muted dark:text-gray-400">{authState.cookieStrength.message}</p>
                             ) : null}
-                            <p>Credential: {authState?.maskedCredential || '****'}</p>
+                            <p>凭据：{authState?.maskedCredential || '****'}</p>
                             <p>
-                              Last validated:{' '}
+                              最近校验时间：
                               {authState?.lastValidatedAt
                                 ? new Date(authState.lastValidatedAt).toLocaleString()
-                                : 'N/A'}
+                                : '暂无'}
                             </p>
                             {authState?.lastError ? (
-                              <p className="text-red-500 dark:text-red-400">Last error: {authState.lastError}</p>
+                              <p className="text-red-500 dark:text-red-400">最近错误：{authState.lastError}</p>
                             ) : null}
                           </div>
                         ) : (
-                          <p className="text-text-muted dark:text-gray-400">Not configured.</p>
+                          <p className="text-text-muted dark:text-gray-400">尚未配置。</p>
                         )}
                       </div>
 
@@ -418,21 +489,128 @@ const SettingsPage: NextPage = () => {
                           disabled={saving}
                           className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
                         >
-                          {saving ? 'Saving...' : 'Save'}
+                          {saving ? '保存中...' : '保存'}
                         </button>
                         <button
                           onClick={validateAuth}
                           disabled={validating || loading || !authState?.configured}
                           className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-main hover:border-accent/70 disabled:opacity-50 dark:border-white/20 dark:text-white"
                         >
-                          {validating ? 'Validating...' : 'Validate'}
+                          {validating ? '校验中...' : '校验'}
                         </button>
                         <button
                           onClick={clearAuth}
                           disabled={loading || !authState?.configured}
                           className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
                         >
-                          Clear
+                          清除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border-strong bg-card p-6 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none">
+                    <div className="mb-4">
+                      <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
+                        YouTube / yt-dlp Login
+                      </p>
+                      <p className="mt-1 text-sm text-text-muted dark:text-gray-400">
+                        保存你的 YouTube 登录凭据，用于受限视频字幕下载。
+                      </p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="rounded-md border border-border-strong bg-white/60 p-3 text-sm dark:border-white/20 dark:bg-black/20">
+                        {!ytAuthState ? (
+                          <p className="text-text-muted dark:text-gray-400">加载状态中...</p>
+                        ) : ytAuthState?.configured ? (
+                          <div className="space-y-1">
+                            <p>
+                              状态：
+                              <span
+                                className={
+                                  ytAuthState?.status === 'valid'
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : ytAuthState?.status === 'invalid'
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-yellow-600 dark:text-yellow-300'
+                                }
+                              >
+                                {ytAuthState?.status || 'unknown'}
+                              </span>
+                            </p>
+                            <p>模式：{ytAuthState?.mode}</p>
+                            <p>凭据：{ytAuthState?.maskedCredential || '****'}</p>
+                            <p>
+                              最近校验时间：
+                              {ytAuthState?.lastValidatedAt
+                                ? new Date(ytAuthState.lastValidatedAt).toLocaleString()
+                                : '暂无'}
+                            </p>
+                            {ytAuthState?.lastError ? (
+                              <p className="text-red-500 dark:text-red-400">最近错误：{ytAuthState.lastError}</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <p className="text-text-muted dark:text-gray-400">尚未配置。</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-main dark:text-white/90">
+                          Credential type
+                        </label>
+                        <select
+                          value={ytMode}
+                          onChange={(e) => setYtMode(e.target.value as any)}
+                          className="block w-full rounded-md border border-border-strong bg-white py-2 pl-3 pr-10 text-text-main focus:border-accent focus:outline-none dark:border-white/20 dark:bg-white/5 dark:text-white"
+                        >
+                          <option value="cookie">Full Cookie string (Recommended)</option>
+                          <option value="cookies_txt">cookies.txt content</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-main dark:text-white/90">
+                          {ytMode === 'cookie' ? 'Cookie' : 'cookies.txt'}
+                        </label>
+                        <textarea
+                          value={ytValue}
+                          onChange={(e) => setYtValue(e.target.value)}
+                          rows={6}
+                          placeholder={
+                            ytMode === 'cookie'
+                              ? '粘贴完整 Cookie 字符串'
+                              : '粘贴 cookies.txt 文件内容（Netscape 格式）'
+                          }
+                          className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                        />
+                        <p className="mt-2 text-xs text-text-muted dark:text-gray-400">
+                          若出现 “Sign in to confirm you’re not a bot”，请更新 YouTube 完整 Cookie 或 cookies.txt。
+                        </p>
+                      </div>
+
+                      {ytMessage ? <p className="text-sm text-text-main dark:text-white/80">{ytMessage}</p> : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={saveYouTubeAuth}
+                          disabled={ytSaving}
+                          className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
+                        >
+                          {ytSaving ? '保存中...' : '保存'}
+                        </button>
+                        <button
+                          onClick={validateYouTubeAuth}
+                          disabled={ytValidating || !ytAuthState?.configured}
+                          className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-main hover:border-accent/70 disabled:opacity-50 dark:border-white/20 dark:text-white"
+                        >
+                          {ytValidating ? '校验中...' : '校验'}
+                        </button>
+                        <button
+                          onClick={clearYouTubeAuth}
+                          disabled={!ytAuthState?.configured}
+                          className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
+                        >
+                          清除
                         </button>
                       </div>
                     </div>

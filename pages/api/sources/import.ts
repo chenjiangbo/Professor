@@ -43,19 +43,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { notebookId, items, interpretationMode } = req.body || {}
   if (!notebookId || !Array.isArray(items)) {
-    res.status(400).json({ error: 'notebookId and items are required' })
+    res.status(400).json({ error: '缺少必要参数：notebookId 和 items' })
     return
   }
   if (typeof notebookId !== 'string' || !isUuid(notebookId)) {
-    res.status(400).json({ error: 'notebookId must be a valid UUID' })
+    res.status(400).json({ error: 'notebookId 格式不合法（必须是 UUID）' })
     return
   }
   if (items.length < 1) {
-    res.status(400).json({ error: 'items must not be empty' })
+    res.status(400).json({ error: 'items 不能为空' })
     return
   }
   if (items.length > MAX_ITEMS) {
-    res.status(422).json({ error: `Too many items (${items.length}), max is ${MAX_ITEMS}` })
+    res.status(422).json({ error: `导入条目过多（${items.length}），最大允许 ${MAX_ITEMS}` })
     return
   }
   if (
@@ -64,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     interpretationMode !== 'detailed' &&
     interpretationMode !== 'none'
   ) {
-    res.status(400).json({ error: 'interpretationMode must be "concise", "detailed", or "none"' })
+    res.status(400).json({ error: 'interpretationMode 只能是 "concise"、"detailed" 或 "none"' })
     return
   }
 
@@ -83,7 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (item.type === 'text') {
         const rawText = String(item.text || '').trim()
         if (!rawText) {
-          errors.push({ index: i, reason: 'Empty text' })
+          errors.push({ index: i, reason: '文本内容为空' })
           continue
         }
         const title = String(item.title || '').trim() || `Text ${i + 1}`
@@ -145,14 +145,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         continue
       }
 
-      errors.push({ index: i, reason: `Unsupported item type: ${(item as any)?.type || 'unknown'}` })
+      errors.push({ index: i, reason: `不支持的导入类型：${(item as any)?.type || 'unknown'}` })
     } catch (e: any) {
-      errors.push({ index: i, reason: e?.message || 'Import item failed' })
+      errors.push({ index: i, reason: e?.message || '该条目导入失败' })
     }
   }
 
   if (!createdItems.length) {
-    res.status(422).json({ error: 'No importable items found.', errors })
+    res.status(422).json({ error: '未找到可导入内容', errors })
     return
   }
 

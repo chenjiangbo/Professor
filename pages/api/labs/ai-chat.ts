@@ -20,7 +20,7 @@ function normalizeIncomingMessages(messages: UIMessage[]) {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
+    res.status(405).json({ error: '不支持该请求方法' })
     return
   }
 
@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error('[labs/ai-chat] vertex chat error', error)
     if (!res.headersSent) {
-      res.status(500).json({ error: error?.message || 'Internal error' })
+      res.status(500).json({ error: error?.message || '内部服务错误' })
     }
   }
 }

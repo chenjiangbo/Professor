@@ -14,7 +14,7 @@ type Video = {
   duration?: string
   status: string
   platform?: string
-  source_type?: 'bilibili' | 'text' | 'file'
+  source_type?: 'bilibili' | 'youtube' | 'text' | 'file'
   source_mime?: string
   source_url?: string
   generation_profile?: 'full_interpretation' | 'summary_only' | 'import_only'
@@ -86,41 +86,41 @@ async function parseResponseJsonSafe(res: Response) {
 }
 
 function getVideoStatusMeta(status: string) {
-  if (status === 'ready') return { label: 'Ready', color: 'text-green-500', pill: 'bg-green-500/15 text-green-300' }
+  if (status === 'ready') return { label: '完成', color: 'text-green-500', pill: 'bg-green-500/15 text-green-300' }
   if (status === 'error' || status === 'no-subtitle') {
-    return { label: 'Failed', color: 'text-red-500', pill: 'bg-red-500/15 text-red-300' }
+    return { label: '失败', color: 'text-red-500', pill: 'bg-red-500/15 text-red-300' }
   }
   if (status === 'queued')
-    return { label: 'Queued', color: 'text-yellow-500', pill: 'bg-yellow-500/15 text-yellow-200' }
+    return { label: '排队中', color: 'text-yellow-500', pill: 'bg-yellow-500/15 text-yellow-200' }
   if (status === 'processing_subtitle') {
-    return { label: 'Subtitle', color: 'text-amber-400', pill: 'bg-amber-500/15 text-amber-200' }
+    return { label: '字幕', color: 'text-amber-400', pill: 'bg-amber-500/15 text-amber-200' }
   }
   if (status === 'processing_outline') {
-    return { label: 'Outline', color: 'text-blue-400', pill: 'bg-blue-500/15 text-blue-200' }
+    return { label: '大纲', color: 'text-blue-400', pill: 'bg-blue-500/15 text-blue-200' }
   }
   if (status === 'processing_summary') {
-    return { label: 'Summary', color: 'text-sky-400', pill: 'bg-sky-500/15 text-sky-200' }
+    return { label: '总结', color: 'text-sky-400', pill: 'bg-sky-500/15 text-sky-200' }
   }
   if (status === 'processing_explaining') {
-    return { label: 'Explaining', color: 'text-violet-300', pill: 'bg-violet-500/15 text-violet-200' }
+    return { label: '解读中', color: 'text-violet-300', pill: 'bg-violet-500/15 text-violet-200' }
   }
   if (status.includes('processing')) {
-    return { label: 'Processing', color: 'text-yellow-500', pill: 'bg-yellow-500/15 text-yellow-200' }
+    return { label: '处理中', color: 'text-yellow-500', pill: 'bg-yellow-500/15 text-yellow-200' }
   }
-  return { label: status || 'Unknown', color: 'text-slate-400', pill: 'bg-slate-500/15 text-slate-300' }
+  return { label: status || '未知', color: 'text-slate-400', pill: 'bg-slate-500/15 text-slate-300' }
 }
 
 function getStageDescription(status: string) {
-  if (status === 'queued') return 'Waiting in queue'
-  if (status === 'processing_extract') return 'Extracting text'
-  if (status === 'processing_summary') return 'Generating summary'
-  if (status === 'processing_subtitle') return 'Downloading subtitles (BBDown)'
-  if (status === 'processing_outline') return 'Generating outline'
-  if (status === 'processing_explaining') return 'Generating chapter explanations'
-  if (status === 'ready') return 'Ready for learning'
-  if (status === 'no-subtitle') return 'No subtitle available'
-  if (status === 'error') return 'Pipeline failed'
-  return status || 'Unknown'
+  if (status === 'queued') return '排队等待中'
+  if (status === 'processing_extract') return '正在提取文本'
+  if (status === 'processing_summary') return '正在生成总结'
+  if (status === 'processing_subtitle') return '正在下载字幕（BBDown）'
+  if (status === 'processing_outline') return '正在生成大纲'
+  if (status === 'processing_explaining') return '正在生成章节解读'
+  if (status === 'ready') return '可开始学习'
+  if (status === 'no-subtitle') return '无可用字幕'
+  if (status === 'error') return '处理链路失败'
+  return status || '未知'
 }
 
 function isProcessing(status: string) {
@@ -144,6 +144,14 @@ function getSourceTypeMeta(video: Video) {
       icon: 'description',
       badge:
         'border border-slate-300 bg-slate-200 text-slate-900 dark:border-slate-500/20 dark:bg-slate-500/20 dark:text-slate-200',
+    }
+  }
+  if (kind === 'youtube' || video.platform === 'youtube') {
+    return {
+      label: 'YT',
+      icon: 'play_circle',
+      badge:
+        'border border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-200',
     }
   }
   return {
@@ -317,7 +325,7 @@ const NotebookDetail: NextPage = () => {
 
   const handleBatchDelete = async () => {
     if (selected.length === 0) return
-    if (!confirm(`Delete ${selected.length} videos?`)) return
+    if (!confirm(`确认删除 ${selected.length} 条资源吗？`)) return
     for (const vid of selected) {
       await fetch(`/api/videos/${vid}`, { method: 'DELETE' })
     }
@@ -332,7 +340,7 @@ const NotebookDetail: NextPage = () => {
     try {
       let res: Response
       if (importTab === 'url') {
-        if (!urlInput.trim()) throw new Error('Please paste at least one URL.')
+        if (!urlInput.trim()) throw new Error('请至少粘贴一个 URL。')
         res = await fetch('/api/videos/import-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -344,7 +352,7 @@ const NotebookDetail: NextPage = () => {
           }),
         })
       } else if (importTab === 'text') {
-        if (!textBodyInput.trim()) throw new Error('Please paste text content first.')
+        if (!textBodyInput.trim()) throw new Error('请先粘贴文本内容。')
         res = await fetch('/api/sources/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -355,7 +363,7 @@ const NotebookDetail: NextPage = () => {
           }),
         })
       } else {
-        if (!importFiles.length) throw new Error('Please choose at least one file.')
+        if (!importFiles.length) throw new Error('请至少选择一个文件。')
         res = await fetch('/api/sources/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -374,9 +382,18 @@ const NotebookDetail: NextPage = () => {
       const json = await parseResponseJsonSafe(res)
       if (!res.ok) {
         const itemErrors = Array.isArray((json as any)?.errors)
-          ? (json as any).errors.map((e: any) => `#${Number(e?.index) + 1}: ${e?.reason || 'unknown'}`).join(' | ')
+          ? (json as any).errors.map((e: any) => `#${Number(e?.index) + 1}: ${e?.reason || '未知错误'}`).join(' | ')
           : ''
-        throw new Error(`${(json as any)?.error || res.statusText}${itemErrors ? ` (${itemErrors})` : ''}`.trim())
+        const previewErrors = Array.isArray((json as any)?.previewErrors)
+          ? (json as any).previewErrors
+              .map((e: any) => `${e?.url || 'unknown'}: ${e?.reason || '未知错误'}`)
+              .join(' | ')
+          : ''
+        throw new Error(
+          `${(json as any)?.error || '请求失败'}${itemErrors ? ` (${itemErrors})` : ''}${
+            previewErrors ? ` (${previewErrors})` : ''
+          }`.trim(),
+        )
       }
       setLastBatchId(json.batchId)
       setShowImportModal(false)
@@ -387,7 +404,7 @@ const NotebookDetail: NextPage = () => {
       setImportTab('url')
       mutate()
     } catch (e: any) {
-      setImportError(e?.message || 'Import failed')
+      setImportError(e?.message || '导入失败')
     } finally {
       setLoadingImport(false)
     }
@@ -399,7 +416,7 @@ const NotebookDetail: NextPage = () => {
     const MAX_SINGLE_FILE_SIZE = 24 * 1024 * 1024
     const oversized = files.find((f) => f.size > MAX_SINGLE_FILE_SIZE)
     if (oversized) {
-      setImportError(`File too large: ${oversized.name}. Current limit is 24MB per file.`)
+      setImportError(`文件过大：${oversized.name}。当前单文件限制为 24MB。`)
       return
     }
     const mapped = await Promise.all(
@@ -418,7 +435,7 @@ const NotebookDetail: NextPage = () => {
                 contentBase64: payload,
               })
             }
-            reader.onerror = () => reject(new Error(`Failed to read ${file.name}`))
+            reader.onerror = () => reject(new Error(`读取文件失败：${file.name}`))
             reader.readAsDataURL(file)
           }),
       ),
@@ -453,11 +470,11 @@ const NotebookDetail: NextPage = () => {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(json?.error || `Re-import failed (${res.status})`)
+        throw new Error(json?.error || `重新导入失败（${res.status}）`)
       }
       mutate()
     } catch (e: any) {
-      alert(e?.message || 'Re-import failed')
+      alert(e?.message || '重新导入失败')
     } finally {
       setReimportingVideoId('')
     }
@@ -585,7 +602,7 @@ const NotebookDetail: NextPage = () => {
         </div>
 
         <div className="mt-auto rounded-lg border border-border-strong bg-black/5 p-4 text-sm text-text-muted dark:border-white/10 dark:bg-white/5 dark:text-white/70">
-          You can continue importing other URLs, taking notes, or switching to another completed video.
+          你可以继续导入其他 URL、记录笔记，或切换到其他已完成资源。
         </div>
       </div>
     )
@@ -604,7 +621,7 @@ const NotebookDetail: NextPage = () => {
       const canReimport = Boolean(activeVideo.id)
       return (
         <div className="flex h-full flex-col rounded-xl border border-red-500/30 bg-card p-6 dark:bg-[#131b36]">
-          <p className="mt-3 text-red-300">{activeVideo.summary || 'Processing failed.'}</p>
+          <p className="mt-3 text-red-300">{activeVideo.summary || '处理失败。'}</p>
           {canReimport ? <div className="mt-6">{renderReimportMenu(activeVideo)}</div> : null}
         </div>
       )
@@ -667,9 +684,7 @@ const NotebookDetail: NextPage = () => {
             <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
               <Markdown>
                 {compactSummary ||
-                  (activeVideo.interpretation_mode === 'none'
-                    ? 'This source was imported without summary/interpretation.'
-                    : 'No summary yet.')}
+                  (activeVideo.interpretation_mode === 'none' ? '该资源为仅导入模式，未生成总结/解读。' : '暂无总结。')}
               </Markdown>
             </div>
           </div>
@@ -678,15 +693,14 @@ const NotebookDetail: NextPage = () => {
             {chapters.length === 0 ? (
               isSummaryOnly ? null : (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-900 dark:text-amber-100">
-                  <p className="font-semibold">No chapters available yet.</p>
+                  <p className="font-semibold">暂未生成章节内容。</p>
                   <p className="mt-1 text-xs opacity-90">
                     {activeVideo.last_error
-                      ? `Reason: ${activeVideo.last_error}`
-                      : 'Reason is not available yet. The model may still be processing or returned an invalid outline format.'}
+                      ? `原因：${activeVideo.last_error}`
+                      : '原因暂不可用。模型可能仍在处理，或返回的大纲格式无效。'}
                   </p>
                   <p className="mt-2 text-xs opacity-90">
-                    You can click <span className="font-semibold">Re-import</span> above to rerun subtitle download and
-                    interpretation.
+                    你可以点击上方 <span className="font-semibold">重新导入</span>，重新执行字幕下载和解读流程。
                   </p>
                 </div>
               )
@@ -699,9 +713,6 @@ const NotebookDetail: NextPage = () => {
                 >
                   <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                     {idx + 1}. {chapter.title}
-                    {chapter.time ? (
-                      <span className="ml-2 text-xs text-slate-500 dark:text-slate-300/70">{chapter.time}</span>
-                    ) : null}
                   </h3>
                   <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
                     <Markdown>{chapter.summary || ''}</Markdown>
@@ -713,10 +724,10 @@ const NotebookDetail: NextPage = () => {
         </div>
 
         <aside className="col-span-12 flex flex-col gap-3 overflow-y-auto rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] lg:col-span-2">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">Outline</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">大纲</h3>
           {chapters.length === 0 ? (
             <p className="text-xs text-slate-600 dark:text-slate-300/80">
-              {isSummaryOnly ? 'No outline in import-only mode.' : 'No outline yet.'}
+              {isSummaryOnly ? '仅导入模式下不生成大纲。' : '暂未生成大纲。'}
             </p>
           ) : (
             chapters.map((chapter, idx) => (
@@ -727,7 +738,7 @@ const NotebookDetail: NextPage = () => {
                 }
                 className="dark:border-white/15 rounded-md border border-slate-300/80 bg-white px-3 py-2 text-left text-sm text-slate-800 hover:border-blue-400/50 hover:bg-blue-500/10 dark:bg-white/10 dark:text-slate-100"
               >
-                <div className="text-xs text-slate-500 dark:text-slate-300/75">Chapter {idx + 1}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300/75">章节 {idx + 1}</div>
                 <div className="line-clamp-2 mt-1 text-slate-900 dark:text-slate-100">{chapter.title}</div>
               </button>
             ))
@@ -766,9 +777,7 @@ const NotebookDetail: NextPage = () => {
       return (
         <div className="flex h-full flex-col rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36]">
           <h2 className="text-xl font-semibold text-text-main dark:text-white">{activeVideo.title}</h2>
-          <p className="mt-2 text-sm text-text-muted dark:text-white/60">
-            Source content is not available yet. You can re-import after processing finishes.
-          </p>
+          <p className="mt-2 text-sm text-text-muted dark:text-white/60">源内容暂不可用。可在处理完成后重新导入。</p>
         </div>
       )
     }
@@ -992,7 +1001,7 @@ const NotebookDetail: NextPage = () => {
               })}
 
               {filteredVideos.length === 0 && (
-                <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">No sources.</div>
+                <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">暂无资源。</div>
               )}
             </div>
           </div>
@@ -1004,7 +1013,7 @@ const NotebookDetail: NextPage = () => {
                   className="min-w-0 flex-1 truncate text-2xl font-bold text-text-main dark:text-white"
                   title={activeVideo?.title || ''}
                 >
-                  {activeVideo?.title || 'No source selected'}
+                  {activeVideo?.title || '未选择资源'}
                 </h1>
                 <button
                   onClick={() =>
@@ -1032,7 +1041,7 @@ const NotebookDetail: NextPage = () => {
                       : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                   }`}
                 >
-                  Learning
+                  学习
                 </button>
                 <button
                   onClick={() => setActiveTab('notes')}
@@ -1042,7 +1051,7 @@ const NotebookDetail: NextPage = () => {
                       : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                   }`}
                 >
-                  Notes
+                  笔记
                 </button>
                 <button
                   onClick={() => setActiveTab('subtitle')}
@@ -1052,7 +1061,7 @@ const NotebookDetail: NextPage = () => {
                       : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                   }`}
                 >
-                  Source
+                  原文
                 </button>
               </div>
             </div>
@@ -1062,15 +1071,15 @@ const NotebookDetail: NextPage = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-semibold">Background Import Task</p>
-                    <p className="text-xs text-text-muted dark:text-white/60">Batch #{batchSummary.id.slice(0, 8)}</p>
+                    <p className="text-xs text-text-muted dark:text-white/60">批次 #{batchSummary.id.slice(0, 8)}</p>
                   </div>
-                  <span className="text-xs text-text-muted dark:text-white/60">Auto refreshing</span>
+                  <span className="text-xs text-text-muted dark:text-white/60">自动刷新中</span>
                 </div>
                 <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
-                  <div>Total: {batchSummary.stats.total}</div>
-                  <div>Ready: {batchSummary.stats.ready}</div>
-                  <div>Processing: {batchSummary.stats.processing}</div>
-                  <div>Failed: {batchSummary.stats.failed}</div>
+                  <div>总数：{batchSummary.stats.total}</div>
+                  <div>完成：{batchSummary.stats.ready}</div>
+                  <div>处理中：{batchSummary.stats.processing}</div>
+                  <div>失败：{batchSummary.stats.failed}</div>
                 </div>
                 <div className="mt-3 max-h-24 space-y-1 overflow-y-auto text-xs">
                   {batchItems.slice(0, 8).map((item) => (
@@ -1095,8 +1104,7 @@ const NotebookDetail: NextPage = () => {
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
                   <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
                   <p className="mt-2 text-sm text-text-muted dark:text-white/60">
-                    Notes workspace is kept as-is. You can continue adding and organizing notes here while videos
-                    process in background.
+                    笔记区保持原有功能。你可以在视频后台处理期间继续记录和整理笔记。
                   </p>
                 </div>
               )
@@ -1109,7 +1117,7 @@ const NotebookDetail: NextPage = () => {
                 }`}
               >
                 <div className="mb-3 flex shrink-0 items-center justify-between">
-                  <p className="text-sm font-semibold text-text-main dark:text-white">Ask Follow-up Questions</p>
+                  <p className="text-sm font-semibold text-text-main dark:text-white">继续提问</p>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setAssistantMaximized((v) => !v)}
@@ -1156,10 +1164,10 @@ const NotebookDetail: NextPage = () => {
                                         typeof input?.query === 'string' ? input.query : JSON.stringify(input || {})
                                       const statusLabel =
                                         state === 'output-available'
-                                          ? 'Search completed'
+                                          ? '检索完成'
                                           : state === 'input-available'
-                                          ? 'Searching...'
-                                          : 'Tool running...'
+                                          ? '检索中...'
+                                          : '工具运行中...'
                                       return (
                                         <div
                                           key={`${msg.id}-tool-${idx}`}
@@ -1180,7 +1188,7 @@ const NotebookDetail: NextPage = () => {
                         )
                       })
                     : null}
-                  {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
+                  {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">思考中...</p> : null}
                   <div ref={bottomRef} />
                 </div>
 
@@ -1190,7 +1198,7 @@ const NotebookDetail: NextPage = () => {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"
-                    placeholder="Ask a question about the current interpretation..."
+                    placeholder="针对当前解读继续提问..."
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault()
@@ -1203,7 +1211,7 @@ const NotebookDetail: NextPage = () => {
                     disabled={isChatLoading || !input.trim()}
                     className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
                   >
-                    Send
+                    发送
                   </button>
                 </form>
               </div>
@@ -1215,7 +1223,7 @@ const NotebookDetail: NextPage = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
             <div className="w-full max-w-2xl rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Import sources</h3>
+                <h3 className="text-lg font-semibold">导入资源</h3>
                 <button
                   className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
                   onClick={() => setShowImportModal(false)}
@@ -1235,7 +1243,7 @@ const NotebookDetail: NextPage = () => {
                           : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                       }`}
                     >
-                      {tab === 'url' ? 'URL' : tab === 'text' ? 'Text' : 'Files'}
+                      {tab === 'url' ? '链接' : tab === 'text' ? '文本' : '文件'}
                     </button>
                   ))}
                 </div>
@@ -1244,13 +1252,13 @@ const NotebookDetail: NextPage = () => {
                     <textarea
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder={`Paste one or multiple Bilibili URLs.\nSupport separators: newline, space, comma, semicolon.`}
+                      placeholder={`粘贴一个或多个视频 URL（B站 / YouTube）。\n支持分隔符：换行、空格、逗号、分号。`}
                       rows={8}
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
-                        Import scope
+                        导入范围
                       </p>
                       <div className="flex flex-col gap-2">
                         <label className="flex cursor-pointer items-center gap-2">
@@ -1261,7 +1269,7 @@ const NotebookDetail: NextPage = () => {
                             checked={expandMode === 'current'}
                             onChange={() => setExpandMode('current')}
                           />
-                          <span>Only current video/page (recommended)</span>
+                          <span>仅导入当前视频/分P（推荐）</span>
                         </label>
                         <label className="flex cursor-pointer items-center gap-2">
                           <input
@@ -1271,7 +1279,7 @@ const NotebookDetail: NextPage = () => {
                             checked={expandMode === 'all'}
                             onChange={() => setExpandMode('all')}
                           />
-                          <span>Expand all pages/episodes from each URL</span>
+                          <span>展开导入每个 URL 的所有分P/分集</span>
                         </label>
                       </div>
                     </div>
@@ -1282,18 +1290,18 @@ const NotebookDetail: NextPage = () => {
                     <input
                       value={textTitleInput}
                       onChange={(e) => setTextTitleInput(e.target.value)}
-                      placeholder="Title (optional)"
+                      placeholder="标题（可选）"
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <textarea
                       value={textBodyInput}
                       onChange={(e) => setTextBodyInput(e.target.value)}
                       rows={10}
-                      placeholder="Paste text content to summarize"
+                      placeholder="粘贴要导入的文本内容"
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <div className="text-xs text-text-muted dark:text-white/50">
-                      Characters: {textBodyInput.trim().length}
+                      字符数：{textBodyInput.trim().length}
                     </div>
                   </div>
                 ) : null}
@@ -1307,7 +1315,7 @@ const NotebookDetail: NextPage = () => {
                         accept=".txt,.md,.srt,.vtt,.ass,.pdf,.docx"
                         onChange={(e) => handlePickFiles(e.target.files)}
                       />
-                      Click to choose files (.txt/.md/.srt/.vtt/.ass/.pdf/.docx)
+                      点击选择文件（.txt/.md/.srt/.vtt/.ass/.pdf/.docx）
                     </label>
                     <div className="max-h-40 space-y-2 overflow-y-auto">
                       {importFiles.map((f) => (
@@ -1318,26 +1326,26 @@ const NotebookDetail: NextPage = () => {
                           <div className="min-w-0">
                             <div className="truncate text-text-main dark:text-white">{f.name}</div>
                             <div className="text-text-muted dark:text-white/50">
-                              {f.mimeType || 'unknown'} · {(f.size / 1024).toFixed(1)} KB
+                              {f.mimeType || '未知'} · {(f.size / 1024).toFixed(1)} KB
                             </div>
                           </div>
                           <button
                             onClick={() => setImportFiles((prev) => prev.filter((x) => x.id !== f.id))}
                             className="ml-3 rounded border border-red-500/30 px-2 py-1 text-red-500 hover:bg-red-500/10"
                           >
-                            Remove
+                            移除
                           </button>
                         </div>
                       ))}
                       {importFiles.length === 0 ? (
-                        <div className="text-xs text-text-muted dark:text-white/50">No files selected.</div>
+                        <div className="text-xs text-text-muted dark:text-white/50">尚未选择文件。</div>
                       ) : null}
                     </div>
                   </div>
                 ) : null}
                 <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
-                    Interpretation mode
+                    解读模式
                   </p>
                   <div className="flex flex-col gap-2">
                     <label className="flex cursor-pointer items-center gap-2">
@@ -1348,7 +1356,7 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'none'}
                         onChange={() => setImportInterpretationMode('none')}
                       />
-                      <span>Import only (no summary/interpretation)</span>
+                      <span>仅导入（不生成总结/解读）</span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1358,7 +1366,7 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'concise'}
                         onChange={() => setImportInterpretationMode('concise')}
                       />
-                      <span>Concise (faster, compressed)</span>
+                      <span>精简（更快，压缩更高）</span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1368,13 +1376,13 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'detailed'}
                         onChange={() => setImportInterpretationMode('detailed')}
                       />
-                      <span>Detailed (preserve more details)</span>
+                      <span>详细（保留更多细节）</span>
                     </label>
                   </div>
                 </div>
                 {importError && <p className="text-sm text-red-500 dark:text-red-400">{importError}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
-                  Import runs in background. Text/File defaults to import-only; you can switch to Concise/Detailed.
+                  导入在后台执行。文本/文件默认“仅导入”，你可以切换为精简或详细模式。
                 </p>
 
                 <div className="mt-4 flex justify-end gap-2">
@@ -1382,7 +1390,7 @@ const NotebookDetail: NextPage = () => {
                     onClick={() => setShowImportModal(false)}
                     className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 dark:border-white/20 dark:text-white"
                   >
-                    Cancel
+                    取消
                   </button>
                   <button
                     onClick={handleImport}
@@ -1394,7 +1402,7 @@ const NotebookDetail: NextPage = () => {
                     }
                     className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary"
                   >
-                    {loadingImport ? 'Submitting...' : 'Start import'}
+                    {loadingImport ? '提交中...' : '开始导入'}
                   </button>
                 </div>
               </div>

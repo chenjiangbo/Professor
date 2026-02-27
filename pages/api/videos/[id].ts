@@ -4,14 +4,14 @@ import { deleteVideo, getVideo } from '~/lib/repo'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: 'id required' })
+    res.status(400).json({ error: '缺少参数 id' })
     return
   }
 
   if (req.method === 'DELETE') {
     const exists = await getVideo(id)
     if (!exists) {
-      res.status(404).json({ error: 'not found' })
+      res.status(404).json({ error: '资源不存在' })
       return
     }
     await deleteVideo(id)

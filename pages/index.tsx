@@ -37,7 +37,7 @@ const Home: NextPage = () => {
 
   const handleCreate = async () => {
     if (!createTitle.trim()) {
-      alert('Please enter a notebook title.')
+      alert('请输入 Notebook 标题。')
       return
     }
     setCreating(true)
@@ -48,7 +48,7 @@ const Home: NextPage = () => {
     })
     if (!res.ok) {
       setCreating(false)
-      alert(`Create failed: ${res.statusText}`)
+      alert(`创建失败：${res.statusText}`)
       return
     }
     const created = await res.json()
@@ -61,11 +61,11 @@ const Home: NextPage = () => {
   }
 
   const handleDeleteNotebook = async (id: string, title: string) => {
-    const ok = window.confirm(`Delete notebook "${title}"? This will remove all related sources and chats.`)
+    const ok = window.confirm(`确认删除 Notebook「${title}」吗？相关资源与聊天记录会一并删除。`)
     if (!ok) return
     const res = await fetch(`/api/notebooks/${id}`, { method: 'DELETE' })
     if (!res.ok && res.status !== 204) {
-      alert(`Delete failed: ${res.status} ${res.statusText}`)
+      alert(`删除失败：${res.status} ${res.statusText}`)
       return
     }
     mutate((prev) => (prev || []).filter((nb) => nb.id !== id), false)

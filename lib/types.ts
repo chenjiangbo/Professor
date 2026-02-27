@@ -1,6 +1,6 @@
 export type VideoConfig = {
   videoId: string
-  service?: VideoService.Bilibili
+  service?: VideoService.Bilibili | VideoService.YouTube
   pageNumber?: null | string
   showTimestamp?: boolean
   showEmoji?: boolean
@@ -12,11 +12,12 @@ export type VideoConfig = {
 
 export enum VideoService {
   Bilibili = 'bilibili',
+  YouTube = 'youtube',
   Text = 'text',
   File = 'file',
 }
 
-export type SourceType = 'bilibili' | 'text' | 'file'
+export type SourceType = 'bilibili' | 'youtube' | 'text' | 'file'
 
 export type CommonSubtitleItem = {
   text: string

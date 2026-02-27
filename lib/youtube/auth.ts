@@ -1,0 +1,175 @@
+import fs from 'fs/promises'
+import path from 'path'
+import { decryptText, encryptText } from '~/lib/security/crypto'
+import { deleteAppSetting, getAppSetting, setAppSetting } from '~/lib/repo'
+
+export type YouTubeAuthMode = 'cookie' | 'cookies_txt'
+export type YouTubeAuthStatus = 'unknown' | 'valid' | 'invalid'
+
+const YOUTUBE_AUTH_KEY = 'youtube_auth'
+
+type YouTubeAuthRecord = {
+  mode: YouTubeAuthMode
+  encryptedValue: string
+  status: YouTubeAuthStatus
+  updatedAt: string
+  lastValidatedAt?: string
+  lastError?: string
+}
+
+function normalizeCookieHeaderText(rawValue: string): string {
+  return String(rawValue || '')
+    .trim()
+    .replace(/^cookie:\s*/i, '')
+    .replace(/\r/g, '')
+}
+
+function normalizeCookieString(rawValue: string): string {
+  const normalized = normalizeCookieHeaderText(rawValue)
+  if (!normalized) throw new Error('凭据不能为空')
+
+  const pairs = normalized
+    .split(/[;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((p) => {
+      const idx = p.indexOf('=')
+      if (idx < 1) return null
+      const key = p.slice(0, idx).trim()
+      const value = p.slice(idx + 1).trim()
+      if (!key || !value) return null
+      return `${key}=${value}`
+    })
+    .filter(Boolean) as string[]
+
+  if (!pairs.length) throw new Error('Cookie 格式不合法')
+  return pairs.join('; ')
+}
+
+function normalizeCookiesTxt(rawValue: string): string {
+  const text = String(rawValue || '')
+    .replace(/\r/g, '')
+    .trim()
+  if (!text) throw new Error('cookies.txt 内容不能为空')
+  if (!/\byoutube\.com\b/i.test(text)) {
+    throw new Error('cookies.txt 中未检测到 youtube.com 域名')
+  }
+  return text.endsWith('\n') ? text : `${text}\n`
+}
+
+function parseRecord(raw: string | null): YouTubeAuthRecord | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed?.mode || !parsed?.encryptedValue) return null
+    return parsed as YouTubeAuthRecord
+  } catch {
+    return null
+  }
+}
+
+function normalizeByMode(mode: YouTubeAuthMode, value: string): string {
+  if (mode === 'cookie') return normalizeCookieString(value)
+  return normalizeCookiesTxt(value)
+}
+
+export async function getYouTubeAuthRecord(): Promise<YouTubeAuthRecord | null> {
+  const raw = await getAppSetting(YOUTUBE_AUTH_KEY)
+  return parseRecord(raw)
+}
+
+export async function setYouTubeAuth(input: { mode: YouTubeAuthMode; value: string }) {
+  const normalized = normalizeByMode(input.mode, input.value)
+  const now = new Date().toISOString()
+  const record: YouTubeAuthRecord = {
+    mode: input.mode,
+    encryptedValue: encryptText(normalized),
+    status: 'unknown',
+    updatedAt: now,
+    lastValidatedAt: undefined,
+    lastError: undefined,
+  }
+  await setAppSetting(YOUTUBE_AUTH_KEY, JSON.stringify(record))
+  return record
+}
+
+export async function clearYouTubeAuth() {
+  await deleteAppSetting(YOUTUBE_AUTH_KEY)
+}
+
+export async function getDecryptedYouTubeAuth(): Promise<{ mode: YouTubeAuthMode; value: string } | null> {
+  const record = await getYouTubeAuthRecord()
+  if (!record) return null
+  return {
+    mode: record.mode,
+    value: decryptText(record.encryptedValue),
+  }
+}
+
+export async function updateYouTubeAuthValidation(status: YouTubeAuthStatus, lastError?: string) {
+  const record = await getYouTubeAuthRecord()
+  if (!record) return null
+  const updated: YouTubeAuthRecord = {
+    ...record,
+    status,
+    lastValidatedAt: new Date().toISOString(),
+    lastError: lastError || undefined,
+  }
+  await setAppSetting(YOUTUBE_AUTH_KEY, JSON.stringify(updated))
+  return updated
+}
+
+function hasImportantYouTubeCookie(cookie: string): boolean {
+  const lower = cookie.toLowerCase()
+  return (
+    lower.includes('sapisi') || lower.includes('__secure-3psid=') || lower.includes('sid=') || lower.includes('hsid=')
+  )
+}
+
+export function validateYouTubeAuthLocal(input: { mode: YouTubeAuthMode; value: string }): {
+  valid: boolean
+  message: string
+} {
+  try {
+    const normalized = normalizeByMode(input.mode, input.value)
+    if (input.mode === 'cookie') {
+      if (!hasImportantYouTubeCookie(normalized)) {
+        return {
+          valid: false,
+          message: 'Cookie 缺少关键字段（建议使用浏览器导出的完整 Cookie）。',
+        }
+      }
+      return { valid: true, message: 'Cookie 格式校验通过。' }
+    }
+
+    if (!/\tyoutube\.com\t|\t\.youtube\.com\t/i.test(normalized)) {
+      return {
+        valid: false,
+        message: 'cookies.txt 中缺少 youtube.com 域名记录。',
+      }
+    }
+    return { valid: true, message: 'cookies.txt 格式校验通过。' }
+  } catch (e: any) {
+    return { valid: false, message: e?.message || '凭据格式校验失败' }
+  }
+}
+
+export function maskCredential(input: string | null | undefined): string {
+  const text = String(input || '')
+  if (!text) return ''
+  if (text.length <= 8) return '****'
+  return `${text.slice(0, 4)}****${text.slice(-4)}`
+}
+
+export async function buildYouTubeAuthArgs(tempDir: string): Promise<string[]> {
+  const auth = await getDecryptedYouTubeAuth()
+  if (!auth) return []
+
+  if (auth.mode === 'cookies_txt') {
+    const cookiesPath = path.join(tempDir, 'youtube-cookies.txt')
+    await fs.writeFile(cookiesPath, auth.value, 'utf8')
+    return ['--cookies', cookiesPath]
+  }
+
+  return ['--add-headers', `Cookie: ${auth.value}`]
+}

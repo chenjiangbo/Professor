@@ -85,7 +85,7 @@ function normalizeIncomingMessages(messages: UIMessage[]) {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' })
+    res.status(405).json({ error: '不支持该请求方法' })
     return
   }
 
@@ -170,7 +170,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error('[Chat API] Error:', error)
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'Internal Server Error' })
+      res.status(500).json({ error: error.message || '聊天服务内部错误' })
     }
   }
 }

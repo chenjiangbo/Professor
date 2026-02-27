@@ -14,17 +14,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: 'id required' })
+    res.status(400).json({ error: '缺少参数 id' })
     return
   }
   if (!isUuid(id)) {
-    res.status(400).json({ error: 'id must be a valid UUID' })
+    res.status(400).json({ error: 'id 格式不合法（必须是 UUID）' })
     return
   }
 
   const batch = await getImportBatch(id)
   if (!batch) {
-    res.status(404).json({ error: 'not found' })
+    res.status(404).json({ error: '批次不存在' })
     return
   }
 

@@ -64,7 +64,7 @@ export async function fetchBilibiliPages(bvid: string) {
   const api = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`
   const res = await fetch(api)
   if (!res.ok) {
-    throw new Error('Failed to fetch bilibili info')
+    throw new Error('获取 B 站视频信息失败')
   }
 
   const data = await res.json()

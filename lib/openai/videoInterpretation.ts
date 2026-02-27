@@ -55,7 +55,7 @@ function normalizeTranscript(input: string, mode: InterpretationMode) {
 }
 
 function buildSummaryFromChapters(overview: string, chapters: GeneratedChapter[]) {
-  const chapterList = chapters.map((c, idx) => `- ${idx + 1}. ${c.title}${c.time ? ` (${c.time})` : ''}`).join('\n')
+  const chapterList = chapters.map((c, idx) => `- ${idx + 1}. ${c.title}`).join('\n')
   return `## 学习总览\n${overview || '本视频已完成深度解读。'}\n\n## 章节目录\n${chapterList}`
 }
 
@@ -66,20 +66,29 @@ async function generateCoverageMap(
   mode: InterpretationMode,
 ): Promise<CoverageResult> {
   const isDetailed = mode === 'detailed'
-  const coverageMaxOutputTokens = isDetailed ? 1800 : 1200
+  const coverageMaxOutputTokens = isDetailed ? 5600 : 4200
+  let retryHint = ''
 
-  const buildPrompt = (retry: boolean) =>
+  const outputContract = ['SUMMARY:', '<一句话总结>', '', 'POINTS:', '- <信息点1>', '- <信息点2>', '- <信息点3>'].join(
+    '\n',
+  )
+
+  const buildPrompt = (retryHint?: string) =>
     [
       '你是一位知识压缩助手。任务是从原始字幕提取后续解读必须覆盖的关键信息点。忽略寒暄、重复和口头语。',
       `视频标题：${title}`,
       '',
-      '输出要求（中文）：',
-      '1) one_sentence_summary：一句话概括核心论点。',
-      '2) coverage_points：提取核心信息点列表。请根据视频的实际信息密度动态决定条目数量（通常在10到30条之间）。不要为了凑数而拆分，也不要遗漏核心推导过程。',
-      isDetailed ? '2.1) 详解模式下请优先保留数据、案例、论据与推导链中的细节点。' : '',
-      '3) 仅输出 JSON，不要输出任何额外文字。',
-      '4) JSON 结构：{"one_sentence_summary":"", "coverage_points":[""]}',
-      retry ? '5) 重试：上次 JSON 不可解析，请仅修复为合法 JSON，不改变语义。' : '',
+      '请输出纯文本，且必须严格遵守格式协议（不要 JSON、不要 Markdown 标题、不要代码块）：',
+      outputContract,
+      '',
+      '格式含义：',
+      '- SUMMARY 行后只写一句话核心论点。',
+      isDetailed
+        ? '- POINTS 下输出关键信息点（建议14-24条），每条只写一个信息点，尽量不超过60字。'
+        : '- POINTS 下输出关键信息点（建议10-18条），每条只写一个信息点，尽量不超过50字。',
+      isDetailed ? '- 当前为详解模式：优先保留数据、案例、论据与推导链中的细节点。' : '',
+      '- 不要输出任何额外说明。',
+      retryHint || '',
       '',
       '原始字幕：',
       transcript,
@@ -87,24 +96,75 @@ async function generateCoverageMap(
       .filter(Boolean)
       .join('\n')
 
-  let lastRaw = ''
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const { text } = await generateText({
-        model,
-        prompt: buildPrompt(attempt > 0),
-        temperature: 0.2,
-        maxOutputTokens: coverageMaxOutputTokens,
-      })
-      lastRaw = text
-      const parsed = safeParseCoverage(text)
-      if (parsed) return parsed
+      const { text } = await withModelRetry('coverage', () =>
+        generateText({
+          model,
+          prompt: buildPrompt(attempt > 0 ? retryHint : ''),
+          temperature: 0,
+          maxOutputTokens: coverageMaxOutputTokens,
+          maxRetries: 0,
+        }),
+      )
+
+      const parsed = parseCoverageText(text)
+      if (!parsed.one_sentence_summary || parsed.coverage_points.length < 1) {
+        throw new Error('Coverage output missing required fields after parsing')
+      }
+      return parsed
     } catch (e: any) {
-      throw new Error(`Coverage model call failed: ${extractModelError(e)}`)
+      const finishReason = String(e?.finishReason || '')
+      const causeMessage = String(e?.cause?.message || e?.message || '')
+      const isLikelyTruncated =
+        finishReason === 'length' || /truncated|incomplete|empty response|could not parse/i.test(causeMessage)
+      retryHint = isLikelyTruncated
+        ? '重试：上次输出疑似被截断。请显著压缩措辞，并完整输出 SUMMARY 与 POINTS。'
+        : '重试：请保持语义一致，仅修复格式，严格输出 SUMMARY 与 POINTS。'
+      if (attempt === 1) {
+        throw new Error(`Coverage model call failed: ${extractModelError(e)}`)
+      }
     }
   }
 
-  throw new Error(`Failed to parse coverage JSON after retry. Raw head: ${String(lastRaw).slice(0, 180)}`)
+  throw new Error('Coverage model call failed: unknown error')
+}
+
+function parseCoverageText(raw: string): CoverageResult {
+  const text = String(raw || '')
+    .replace(/\r/g, '')
+    .trim()
+  if (!text) {
+    throw new Error('Coverage output is empty')
+  }
+
+  const summaryMatch = text.match(/(?:^|\n)SUMMARY:\s*([\s\S]*?)(?:\n\s*POINTS:|$)/i)
+  const summary = String(summaryMatch?.[1] || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+
+  const pointsBlockMatch = text.match(/(?:^|\n)POINTS:\s*([\s\S]*)$/i)
+  const pointsBlock = String(pointsBlockMatch?.[1] || '').trim()
+  const points = pointsBlock
+    .split('\n')
+    .map((line) => line.trim())
+    .map((line) => line.replace(/^[-*•]\s*/, '').trim())
+    .filter(Boolean)
+
+  if (!summary) {
+    throw new Error('Coverage output missing SUMMARY section')
+  }
+  if (points.length < 1) {
+    throw new Error('Coverage output missing POINTS section')
+  }
+
+  return {
+    one_sentence_summary: summary,
+    coverage_points: points,
+  }
 }
 
 async function generateFullArticle(
@@ -146,17 +206,22 @@ async function generateFullArticle(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const { text } = await generateText({
-        model,
-        prompt: buildPrompt(attempt > 0),
-        temperature: 0.4,
-        maxOutputTokens: isDetailed ? 12000 : 6000,
-      })
+      const { text } = await withModelRetry('article', () =>
+        generateText({
+          model,
+          prompt: buildPrompt(attempt > 0),
+          temperature: 0.4,
+          maxOutputTokens: isDetailed ? 12000 : 6000,
+          maxRetries: 0,
+        }),
+      )
 
       const normalized = String(text || '').trim()
       if (normalized) return normalized
     } catch (e: any) {
-      throw new Error(`Article model call failed: ${extractModelError(e)}`)
+      if (attempt === 1) {
+        throw new Error(`Article model call failed: ${extractModelError(e)}`)
+      }
     }
   }
 
@@ -298,64 +363,17 @@ export async function generateVideoInterpretation(
   }
 }
 
-function safeParseCoverage(raw: string): CoverageResult | null {
-  const candidates = toJsonCandidates(raw)
-  for (const candidate of candidates) {
-    const parsed = parseCoverageObject(candidate)
-    if (parsed) return parsed
-  }
-  return null
-}
-
 function extractModelError(e: any): string {
   const message = String(e?.message || 'Unknown error')
   const cause = e?.cause || {}
   const body = cause?.responseBody || e?.responseBody || ''
   const status = cause?.statusCode || e?.statusCode || ''
+  const finishReason = e?.finishReason ? ` finishReason=${String(e.finishReason)}` : ''
+  const textHead = e?.text ? ` text=${String(e.text).slice(0, 240)}` : ''
+  const causeMessage = cause?.message ? ` cause=${String(cause.message).slice(0, 260)}` : ''
   const detail = body ? ` body=${String(body).slice(0, 600)}` : ''
   const code = status ? ` status=${status}` : ''
-  return `${message}${code}${detail}`
-}
-
-function toJsonCandidates(raw: string): string[] {
-  const text = String(raw || '').trim()
-  if (!text) return []
-
-  const withoutFence = text
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .trim()
-  const first = withoutFence.indexOf('{')
-  const last = withoutFence.lastIndexOf('}')
-  const objectSlice = first >= 0 && last > first ? withoutFence.slice(first, last + 1) : withoutFence
-
-  const normalizedQuotes = objectSlice
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/\u00a0/g, ' ')
-  const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1')
-
-  return Array.from(new Set([text, withoutFence, objectSlice, normalizedQuotes, noTrailingCommas]))
-}
-
-function parseCoverageObject(candidate: string): CoverageResult | null {
-  try {
-    const json = JSON.parse(candidate)
-    if (!json || typeof json !== 'object') return null
-
-    const oneSentenceSummary = String((json as any).one_sentence_summary || '').trim()
-    const coveragePointsRaw = Array.isArray((json as any).coverage_points) ? (json as any).coverage_points : []
-    const coveragePoints = coveragePointsRaw.map((v: any) => String(v || '').trim()).filter(Boolean)
-
-    if (!oneSentenceSummary || coveragePoints.length < 3) return null
-
-    return {
-      one_sentence_summary: oneSentenceSummary,
-      coverage_points: coveragePoints,
-    }
-  } catch {
-    return null
-  }
+  return `${message}${code}${finishReason}${causeMessage}${textHead}${detail}`
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -373,12 +391,111 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
   })
 }
 
+async function withModelRetry<T>(stage: 'coverage' | 'article', call: () => Promise<T>): Promise<T> {
+  const maxAttempts = resolvePositiveIntEnv('VERTEX_MODEL_MAX_ATTEMPTS', 3)
+  const baseDelayMs = resolvePositiveIntEnv('VERTEX_MODEL_RETRY_BASE_DELAY_MS', 1000)
+  const maxDelayMs = resolvePositiveIntEnv('VERTEX_MODEL_RETRY_MAX_DELAY_MS', 8000)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await call()
+    } catch (e: any) {
+      const retryable = isRetryableModelError(e)
+      const hasNext = attempt < maxAttempts
+      const willRetry = retryable && hasNext
+      const delayMs = willRetry ? Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1)) : 0
+      logModelError(stage, attempt, e, willRetry, delayMs)
+
+      if (!willRetry) throw e
+      await sleep(delayMs)
+    }
+  }
+
+  throw new Error(`${stage} model call failed: exhausted retries`)
+}
+
+function isRetryableModelError(e: any): boolean {
+  const status = Number(e?.statusCode || e?.cause?.statusCode || 0)
+  if (status === 429) return true
+  if (status >= 500 && status < 600) return true
+
+  const text = `${String(e?.message || '')} ${String(e?.cause?.message || '')}`.toLowerCase()
+  return (
+    text.includes('rate limit') ||
+    text.includes('resource exhausted') ||
+    text.includes('quota') ||
+    text.includes('too many requests') ||
+    text.includes('temporarily unavailable')
+  )
+}
+
+function logModelError(
+  stage: 'coverage' | 'article',
+  attempt: number,
+  e: any,
+  willRetry: boolean,
+  retryDelayMs: number,
+) {
+  const statusCode = Number(e?.statusCode || e?.cause?.statusCode || 0) || null
+  const bodyRaw = e?.cause?.responseBody || e?.responseBody || ''
+  const parsed = parseErrorBody(bodyRaw)
+
+  const payload = {
+    stage,
+    attempt,
+    willRetry,
+    retryDelayMs,
+    statusCode,
+    finishReason: e?.finishReason || null,
+    message: String(e?.message || ''),
+    causeMessage: String(e?.cause?.message || ''),
+    errorMessage: parsed.message,
+    errorDetails: parsed.details,
+    errorBody: parsed.bodyHead,
+  }
+  console.error(`[vertex-llm-error] ${JSON.stringify(payload)}`)
+}
+
+function parseErrorBody(raw: unknown): { message: string | null; details: unknown[]; bodyHead: string } {
+  const bodyHead = String(raw || '').slice(0, 2000)
+  if (!bodyHead) {
+    return { message: null, details: [], bodyHead: '' }
+  }
+
+  try {
+    const parsed = JSON.parse(bodyHead)
+    const errorObj = (parsed as any)?.error || {}
+    const details = Array.isArray(errorObj?.details) ? errorObj.details : []
+    return {
+      message: errorObj?.message ? String(errorObj.message) : null,
+      details,
+      bodyHead,
+    }
+  } catch {
+    return { message: null, details: [], bodyHead }
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
 function resolveTimeoutMs(envName: string, fallbackMs: number): number {
   const raw = process.env[envName]
   if (!raw) return fallbackMs
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(`${envName} must be a positive number in milliseconds`)
+  }
+  return Math.floor(parsed)
+}
+
+function resolvePositiveIntEnv(envName: string, fallback: number): number {
+  const raw = process.env[envName]
+  if (!raw) return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${envName} must be a positive number`)
   }
   return Math.floor(parsed)
 }
