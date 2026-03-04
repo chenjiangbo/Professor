@@ -51,7 +51,7 @@ function normalizeTranscript(input: string, mode: InterpretationMode) {
     .replace(/\r/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-  const byteLimit = mode === 'detailed' ? 18000 : 10000
+  const byteLimit = mode === 'detailed' ? 90000 : 30000
   return limitTranscriptByteLength(text, byteLimit)
 }
 
@@ -84,9 +84,32 @@ async function generateCoverageMap(
   const buildPrompt = (retryHint?: string) =>
     [
       chinese
-        ? '你是一位知识压缩助手。提取后续解读必须覆盖的关键信息点，忽略寒暄、重复与口头语。'
-        : 'You are a knowledge compression assistant. Extract key information points that must be covered in the later interpretation. Ignore greetings, repetition, and filler speech.',
+        ? '你是一位拥有敏锐洞察力的资深主编。请对下方的原始转录进行结构化分析，为后续的深度专栏文章策划核心骨架。'
+        : 'You are a senior editor with sharp judgment. Analyze the raw transcript and plan a strong structural backbone for a later in-depth column.',
       chinese ? `视频标题：${title}` : `Video title: ${title}`,
+      '',
+      chinese ? '原始转录：' : 'Raw transcript:',
+      transcript,
+      '',
+      chinese ? '任务要求：' : 'Task requirements:',
+      chinese
+        ? '1) 提炼核心（SUMMARY）：用极简练语言概括全篇核心思想或底层逻辑。'
+        : '1) Distill the core (SUMMARY): one concise sentence for the central thesis.',
+      chinese
+        ? '2) 策划大纲（POINTS）：提取 6-10 个核心议题，这些议题将直接作为后续专栏文章的章节标题。'
+        : '2) Plan chapter topics (POINTS): extract 6-10 core themes that can directly become section titles in the final article.',
+      chinese
+        ? '- 拒绝平庸：不要使用“简介/背景/结论”这类无意义标题。'
+        : '- Avoid generic titles like Intro/Background/Conclusion.',
+      chinese
+        ? '- 抓取概念：优先捕捉独特术语、比喻或反直觉观点。'
+        : '- Capture signature concepts: unique terms, metaphors, or contrarian insights.',
+      chinese
+        ? '- 逻辑连贯：议题排列应符合原文叙事逻辑或论证层级。'
+        : '- Keep logical flow: order themes by narrative or argument progression.',
+      chinese
+        ? '- 全文覆盖原则：必须均匀覆盖开头、中间和结尾的关键论述，严禁只总结前半部分。'
+        : '- Coverage principle: you must evenly cover beginning, middle, and ending arguments; do not summarize only the first half.',
       '',
       chinese
         ? '输出纯文本，并严格遵守以下格式（不要 JSON、不要 Markdown 标题、不要代码块）：'
@@ -97,10 +120,10 @@ async function generateCoverageMap(
       chinese ? '- SUMMARY 后只写一句核心观点。' : '- After SUMMARY:, write only one sentence with the core thesis.',
       isDetailed
         ? chinese
-          ? '- POINTS 下输出关键信息点（建议 14-24 条），每行一个信息点。'
+          ? '- POINTS 下每一行必须是一个独立的章节策划（严格 6-10 条）。'
           : '- Under POINTS:, output key information points (recommended 14-24). One point per line, concise wording.'
         : chinese
-        ? '- POINTS 下输出关键信息点（建议 10-18 条），每行一个信息点。'
+        ? '- POINTS 下每一行必须是一个独立的章节策划（严格 6-10 条）。'
         : '- Under POINTS:, output key information points (recommended 10-18). One point per line, concise wording.',
       isDetailed
         ? chinese
@@ -109,9 +132,6 @@ async function generateCoverageMap(
         : '',
       chinese ? '- 不要输出任何额外说明。' : '- Do not output any extra explanation.',
       retryHint || '',
-      '',
-      chinese ? '原始转录：' : 'Raw transcript:',
-      transcript,
     ]
       .filter(Boolean)
       .join('\n')
@@ -132,8 +152,21 @@ async function generateCoverageMap(
       if (!parsed.one_sentence_summary || parsed.coverage_points.length < 1) {
         throw new Error('Coverage output missing required fields after parsing')
       }
+      const coverageHint = validateCoveragePointCount(parsed.coverage_points.length, mode, language)
+      if (coverageHint) {
+        const err: any = new Error(`Coverage point count validation failed: ${coverageHint}`)
+        err.retryHint = coverageHint
+        throw err
+      }
       return parsed
     } catch (e: any) {
+      if (e?.retryHint && typeof e.retryHint === 'string') {
+        retryHint = e.retryHint
+        if (attempt === 1) {
+          throw new Error(`Coverage output validation failed: ${e?.message || 'POINTS count out of range'}`)
+        }
+        continue
+      }
       const finishReason = String(e?.finishReason || '')
       const causeMessage = String(e?.cause?.message || e?.message || '')
       const isLikelyTruncated =
@@ -191,6 +224,23 @@ function parseCoverageText(raw: string): CoverageResult {
   }
 }
 
+function validateCoveragePointCount(pointCount: number, mode: InterpretationMode, language: AppLanguage): string {
+  const chinese = isChineseLanguage(language)
+  const min = 6
+  const max = 10
+  if (pointCount < min) {
+    return chinese
+      ? `重试：上一次只生成了 ${pointCount} 个议题，少于最少 ${min} 个的要求。请深入挖掘内容，补充议题，并严格输出在 ${min}-${max} 个之间。`
+      : `Retry: you generated only ${pointCount} themes, below the minimum ${min}. Expand your analysis and return strictly ${min}-${max} themes.`
+  }
+  if (pointCount > max) {
+    return chinese
+      ? `重试：上一次生成了 ${pointCount} 个议题，超出了上限 ${max}。请重新生成，并严格控制在 ${min}-${max} 个之间。`
+      : `Retry: you generated ${pointCount} themes, above the maximum ${max}. Regenerate and keep strictly within ${min}-${max}.`
+  }
+  return ''
+}
+
 async function generateFullArticle(
   title: string,
   transcript: string,
@@ -201,49 +251,57 @@ async function generateFullArticle(
 ): Promise<string> {
   const isDetailed = mode === 'detailed'
   const chinese = isChineseLanguage(language)
-  const buildPrompt = (retry: boolean) =>
+  let retryHint = ''
+  const buildPrompt = (retryHint?: string) =>
     [
       chinese
-        ? '你是一位深度解读编辑。请基于转录写一篇连贯、清晰、可读性强的深度文章。'
-        : 'You are a deep-interpretation editor. Write a coherent, readable, and logically clear in-depth article based on the transcript.',
+        ? '你是一位科技与人文领域的顶级专栏作家。请基于提供的大纲和原始转录，撰写一篇深度、犀利且可读性极强的解读文章。'
+        : 'You are a top-tier columnist in technology and humanities. Write a sharp, deep, and highly readable interpretation based on the outline and raw transcript.',
       chinese ? `视频标题：${title}` : `Video title: ${title}`,
       '',
-      chinese ? '写作要求：' : 'Writing requirements:',
+      chinese ? '写作风格要求：' : 'Writing requirements:',
       chinese
-        ? '1) 必须覆盖关键信息点，不遗漏核心内容。'
+        ? '1) 拒绝平庸的“助教风”：不要写成枯燥摘要或说明书，文章要有观点、有温度、有呼吸感。'
         : '1) Cover all key information points; do not miss core content.',
-      chinese ? '2) 忠于转录事实，不得编造细节。' : '2) Stay faithful to transcript facts; do not fabricate details.',
       chinese
-        ? '3) 可补充必要背景解释，但不得偏离主题。'
-        : '3) You may add necessary background explanations without drifting off-topic.',
+        ? '2) 像 Naval 一样思考：保留原文中的精彩比喻和反直觉洞察，独特术语要保留并解释。'
+        : '2) Keep signature insights: preserve sharp metaphors, contrarian ideas, and explain unique terms instead of flattening them.',
       chinese
-        ? '4) 全文保持自然连贯，段落间有清晰过渡。'
-        : '4) Keep the article flowing naturally with smooth transitions between paragraphs.',
+        ? '3) 流畅自然：段落间要有逻辑过渡，避免机械堆砌信息。'
+        : '3) Keep natural flow: smooth transitions, no mechanical bullet-dump writing.',
       chinese
-        ? '5) 风格应像成熟专栏作者，避免机械化罗列。'
-        : '5) Style: write like an experienced columnist, not like a mechanical outline dump.',
-      chinese
-        ? '6) 使用 Markdown 增强可读性：可加粗重点、引用关键句、适度使用列表。'
-        : '6) Use Markdown for readability: bold key concepts, use blockquotes (>) for notable quotes/data, and lists where appropriate without turning the whole article into lists.',
+        ? '4) 可读性优化：适当使用加粗（重点）和引用（> 金句）控制阅读节奏。'
+        : '4) Optimize readability with selective bold highlights and block quotes for key lines.',
+      chinese ? '格式硬约束（至关重要）：' : 'Hard format constraints (critical):',
       isDetailed
         ? chinese
-          ? '7) 使用 Markdown，并用 4-8 个二级标题（##）组织全文。'
-          : '7) Use Markdown with 4-8 level-2 headings (##) to organize the article logically.'
+          ? '1) 全文必须由 6-10 个章节组成。'
+          : '1) The full article must contain 6-10 sections.'
         : chinese
-        ? '7) 使用 Markdown，并用 3-6 个二级标题（##）组织全文。'
-        : '7) Use Markdown with 3-6 level-2 headings (##) and a natural reading rhythm.',
-      isDetailed
-        ? chinese
-          ? '8) 当前为详解模式：在保证可读性前提下尽量保留细节、证据、数据与推理过程。'
-          : '8) Detailed mode: preserve critical details, evidence, data, and reasoning steps while keeping readability.'
+        ? '1) 全文必须由 4-6 个章节组成。'
+        : '1) The full article must contain 4-6 sections.',
+      chinese
+        ? '2) 文章第一行必须是二级标题（## 标题名）。'
+        : '2) The first line must be a level-2 heading (## Heading).',
+      chinese
+        ? '3) 严禁在第一个 ## 标题之前输出任何前言、导语或寒暄。'
+        : '3) Do not output any preface before the first ## heading.',
+      chinese
+        ? '4) 如需开篇背景，请命名为“## 引言：<核心议题>”或直接融入第一章节。'
+        : '4) If you need context, write it as a titled first section (for example: ## Introduction: ...).',
+      chinese
+        ? '5) 章节应覆盖下方大纲议题，保持逻辑完整。'
+        : '5) Ensure sections cover the outline themes below with coherent logic.',
+      chinese
+        ? isDetailed
+          ? '6) 当前为详解模式：尽量保留细节、证据、数据与推导过程。'
+          : ''
+        : isDetailed
+        ? '6) Detailed mode: preserve key details, evidence, data points, and reasoning steps.'
         : '',
-      retry
-        ? chinese
-          ? '9) 重试：上次输出不完整，请输出完整文章。'
-          : '9) Retry: previous output was incomplete. Return a complete article.'
-        : '',
+      retryHint || '',
       '',
-      chinese ? '必须覆盖的关键信息点：' : 'Mandatory key points to cover:',
+      chinese ? '待覆盖的大纲议题（POINTS）：' : 'Mandatory key points to cover:',
       ...coveragePoints.map((p, i) => `${i + 1}. ${p}`),
       '',
       chinese ? '原始转录：' : 'Raw transcript:',
@@ -257,23 +315,72 @@ async function generateFullArticle(
       const { text } = await withModelRetry('article', () =>
         generateText({
           model,
-          prompt: buildPrompt(attempt > 0),
+          prompt: buildPrompt(attempt > 0 ? retryHint : ''),
           temperature: 0.4,
-          maxOutputTokens: isDetailed ? 12000 : 6000,
+          maxOutputTokens: isDetailed ? 15000 : 8000,
           maxRetries: 0,
         }),
       )
 
       const normalized = String(text || '').trim()
-      if (normalized) return normalized
+      if (!normalized) {
+        throw new Error('Empty full-article interpretation from model')
+      }
+      const structureHint = validateArticleStructure(normalized, mode, language)
+      if (structureHint) {
+        const err: any = new Error(`Article structure validation failed: ${structureHint}`)
+        err.retryHint = structureHint
+        throw err
+      }
+      return normalized
     } catch (e: any) {
+      if (e?.retryHint && typeof e.retryHint === 'string') {
+        retryHint = e.retryHint
+        if (attempt === 1) {
+          throw new Error(`Article output validation failed: ${e?.message || 'invalid structure'}`)
+        }
+        continue
+      }
       if (attempt === 1) {
         throw new Error(`Article model call failed: ${extractModelError(e)}`)
       }
+      retryHint = chinese
+        ? '重试：你上次输出不完整或格式不合规。请严格遵守格式硬约束并输出完整文章。'
+        : 'Retry: previous output was incomplete. Return a complete article.'
     }
   }
 
   throw new Error('Empty full-article interpretation from model')
+}
+
+function validateArticleStructure(article: string, mode: InterpretationMode, language: AppLanguage): string {
+  const chinese = isChineseLanguage(language)
+  const firstNonEmpty = String(article || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean)
+
+  if (!firstNonEmpty || !/^##\s+\S+/.test(firstNonEmpty)) {
+    return chinese
+      ? '重试：上一次输出格式错误，第一行未检测到二级标题。请严格以 ## 标题 开始，并且第一个 ## 之前不要输出任何文字。'
+      : 'Retry: format error. The first line did not start with a level-2 heading. Start strictly with ## Heading and output nothing before it.'
+  }
+
+  const headingCount = (String(article || '').match(/^##\s+\S+/gm) || []).length
+  const min = mode === 'detailed' ? 6 : 4
+  const max = mode === 'detailed' ? 10 : 6
+  if (headingCount < min) {
+    return chinese
+      ? `重试：上一次只生成了 ${headingCount} 个章节，少于最少 ${min} 个的要求。请补全章节并严格控制在 ${min}-${max} 个之间。`
+      : `Retry: only ${headingCount} sections were generated, below minimum ${min}. Expand and keep strictly within ${min}-${max} sections.`
+  }
+  if (headingCount > max) {
+    return chinese
+      ? `重试：上一次生成了 ${headingCount} 个章节，超出了上限 ${max}。请压缩结构并严格控制在 ${min}-${max} 个之间。`
+      : `Retry: ${headingCount} sections were generated, above maximum ${max}. Compress and keep strictly within ${min}-${max} sections.`
+  }
+  return ''
 }
 
 function splitArticleIntoSections(article: string): ArticleSection[] {

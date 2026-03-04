@@ -128,6 +128,21 @@ function getStageDescription(status: string, language: 'zh-CN' | 'en-US') {
   return status || (zh ? '未知' : 'Unknown')
 }
 
+function formatTimestamp(value: string | undefined, language: 'zh-CN' | 'en-US') {
+  if (!value) return '--'
+  const time = new Date(value)
+  if (Number.isNaN(time.getTime())) return '--'
+  const locale = language === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(time)
+}
+
 function isProcessing(status: string) {
   return status === 'queued' || status.startsWith('processing')
 }
@@ -219,6 +234,7 @@ const NotebookDetail: NextPage = () => {
   const [activeVideoId, setActiveVideoId] = useState<string>('')
   const [subtitleSearch, setSubtitleSearch] = useState<string>('')
   const [copiedTranscript, setCopiedTranscript] = useState(false)
+  const [copiedInterpretation, setCopiedInterpretation] = useState(false)
   const [showAssistantPanel, setShowAssistantPanel] = useState(true)
   const [assistantMaximized, setAssistantMaximized] = useState(false)
   const [reimportingVideoId, setReimportingVideoId] = useState<string>('')
@@ -233,6 +249,7 @@ const NotebookDetail: NextPage = () => {
   )
   const [input, setInput] = useState('')
   const [isChatInputComposing, setIsChatInputComposing] = useState(false)
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
   const { data: batchSummary } = useSWR<ImportBatchSummary>(
     lastBatchId ? `/api/import-batches/${lastBatchId}` : null,
     fetcher,
@@ -266,6 +283,15 @@ const NotebookDetail: NextPage = () => {
   const isChatLoading = status === 'streaming' || status === 'submitted'
   const historySyncKeyRef = useRef<string>('')
 
+  const autoResizeChatInput = (el?: HTMLTextAreaElement | null) => {
+    const target = el || chatInputRef.current
+    if (!target) return
+    target.style.height = 'auto'
+    const nextHeight = Math.max(40, Math.min(target.scrollHeight, 220))
+    target.style.height = `${nextHeight}px`
+    target.style.overflowY = target.scrollHeight > 220 ? 'auto' : 'hidden'
+  }
+
   useEffect(() => {
     const history = initialHistory || []
     const signature = history.map((m: any) => `${m.id}:${m.created_at}`).join('|')
@@ -274,6 +300,14 @@ const NotebookDetail: NextPage = () => {
     historySyncKeyRef.current = syncKey
     setMessages(history as any)
   }, [initialHistory, activeVideoId])
+
+  useEffect(() => {
+    autoResizeChatInput()
+  }, [input])
+
+  useEffect(() => {
+    setCopiedInterpretation(false)
+  }, [activeVideoId])
 
   useEffect(() => {
     if (!videos.length) {
@@ -301,10 +335,22 @@ const NotebookDetail: NextPage = () => {
     setImportInterpretationMode(mode === 'detailed' ? 'detailed' : mode === 'none' ? 'none' : 'concise')
   }, [importTab, defaultInterpretationModeData?.mode])
 
-  const filteredVideos = useMemo(
-    () => videos.filter((v) => v.title.toLowerCase().includes(search.toLowerCase())),
-    [videos, search],
-  )
+  const filteredVideos = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return [...videos]
+      .sort((a, b) => {
+        const aTs = new Date(a.created_at || 0).getTime()
+        const bTs = new Date(b.created_at || 0).getTime()
+        return bTs - aTs
+      })
+      .filter((v) =>
+        query
+          ? String(v.title || '')
+              .toLowerCase()
+              .includes(query)
+          : true,
+      )
+  }, [videos, search])
 
   const activeVideo = useMemo(() => videos.find((v) => v.id === activeVideoId) || null, [videos, activeVideoId])
 
@@ -515,7 +561,7 @@ const NotebookDetail: NextPage = () => {
   const renderReimportMenu = (video: Video) => {
     const loading = reimportingVideoId === video.id
     return (
-      <details className="group relative">
+      <details className="group relative inline-block">
         <summary
           title={loading ? 'Re-importing...' : 'Re-import options'}
           aria-label={loading ? 'Re-importing...' : 'Re-import options'}
@@ -525,7 +571,7 @@ const NotebookDetail: NextPage = () => {
         >
           <span className={`material-symbols-outlined !text-[18px] ${loading ? 'animate-spin' : ''}`}>refresh</span>
         </summary>
-        <div className="dark:border-white/15 absolute right-0 z-20 mt-2 w-44 rounded-md border border-border-strong bg-card p-1 shadow-lg dark:bg-[#1a1f35]">
+        <div className="dark:border-white/15 absolute right-0 top-full z-20 mt-2 w-44 rounded-md border border-border-strong bg-card p-1 shadow-lg dark:bg-[#1a1f35]">
           <button
             onClick={(e) => {
               e.preventDefault()
@@ -655,6 +701,12 @@ const NotebookDetail: NextPage = () => {
       const canReimport = Boolean(activeVideo.id)
       return (
         <div className="flex h-full flex-col rounded-xl border border-red-500/30 bg-card p-6 dark:bg-[#131b36]">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-red-300">
+              {tx('Processing failed', '处理失败')}
+            </h2>
+            {canReimport ? renderReimportMenu(activeVideo) : null}
+          </div>
           <p className="mt-3 text-red-300">{activeVideo.summary || tx('Processing failed.', '处理失败。')}</p>
           {(activeVideo.source_type === 'bilibili' || activeVideo.source_type === 'youtube') && (
             <p className="mt-2 text-xs text-amber-200">
@@ -665,7 +717,6 @@ const NotebookDetail: NextPage = () => {
               {tx('.', '。')}
             </p>
           )}
-          {canReimport ? <div className="mt-6">{renderReimportMenu(activeVideo)}</div> : null}
         </div>
       )
     }
@@ -683,6 +734,40 @@ const NotebookDetail: NextPage = () => {
       activeVideo.generation_profile === 'import_only' ||
       activeVideo.interpretation_mode === 'none'
     const canReimport = Boolean(activeVideo.id)
+    const interpretationCopyText = [
+      compactSummary ? `## ${tx('Learning Overview', '学习总览')}\n\n${compactSummary}` : '',
+      ...chapters.map((chapter, idx) => {
+        const chapterTitle = String(chapter?.title || '').trim() || tx('Untitled chapter', '未命名章节')
+        const chapterSummary = String(chapter?.summary || '').trim()
+        return chapterSummary ? `## ${idx + 1}. ${chapterTitle}\n\n${chapterSummary}` : ''
+      }),
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    const copyInterpretationButton = (
+      <button
+        type="button"
+        disabled={!interpretationCopyText}
+        onClick={async () => {
+          if (!interpretationCopyText) return
+          try {
+            await navigator.clipboard.writeText(interpretationCopyText)
+            setCopiedInterpretation(true)
+            setTimeout(() => setCopiedInterpretation(false), 1200)
+          } catch {
+            setCopiedInterpretation(false)
+          }
+        }}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-strong bg-white text-text-main hover:border-accent/70 disabled:opacity-40 dark:border-white/20 dark:bg-black/20 dark:text-white/90"
+        title={tx('Copy interpretation content', '复制解读内容')}
+        aria-label={tx('Copy interpretation content', '复制解读内容')}
+      >
+        <span className="material-symbols-outlined !text-[16px]">
+          {copiedInterpretation ? 'check' : 'content_copy'}
+        </span>
+      </button>
+    )
+
     return (
       <div className="grid h-full grid-cols-12 gap-4 overflow-hidden">
         <div className="col-span-12 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 dark:border-white/10 dark:bg-[#131b36] lg:col-span-10">
@@ -693,6 +778,7 @@ const NotebookDetail: NextPage = () => {
               </h2>
               {canReimport ? (
                 <div className="flex shrink-0 items-center gap-2">
+                  {copyInterpretationButton}
                   <span
                     className={`rounded px-2 py-0.5 text-[11px] font-semibold ${getSourceTypeMeta(activeVideo).badge}`}
                   >
@@ -709,6 +795,7 @@ const NotebookDetail: NextPage = () => {
                 </div>
               ) : (
                 <div className="flex shrink-0 items-center gap-2">
+                  {copyInterpretationButton}
                   <span
                     className={`rounded px-2 py-0.5 text-[11px] font-semibold ${getSourceTypeMeta(activeVideo).badge}`}
                   >
@@ -772,7 +859,7 @@ const NotebookDetail: NextPage = () => {
                   id={`chapter-${idx}`}
                   className="dark:border-white/15 rounded-lg border border-slate-300/80 bg-white p-5 shadow-sm dark:bg-[#0f1a35]"
                 >
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300">
                     {idx + 1}. {chapter.title}
                   </h3>
                   <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
@@ -806,7 +893,7 @@ const NotebookDetail: NextPage = () => {
                 <div className="text-xs text-slate-500 dark:text-slate-300/75">
                   {tx('Chapter', '章节')} {idx + 1}
                 </div>
-                <div className="line-clamp-2 mt-1 text-slate-900 dark:text-slate-100">{chapter.title}</div>
+                <div className="line-clamp-2 mt-1 text-blue-700 dark:text-blue-300">{chapter.title}</div>
               </button>
             ))
           )}
@@ -878,11 +965,13 @@ const NotebookDetail: NextPage = () => {
                 setCopiedTranscript(false)
               }
             }}
-            className="inline-flex items-center gap-1 rounded-md border border-border-strong bg-white px-2 py-1 text-xs text-text-main hover:border-accent/70 dark:border-white/20 dark:bg-black/20 dark:text-white/90"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border-strong bg-white text-text-main hover:border-accent/70 dark:border-white/20 dark:bg-black/20 dark:text-white/90"
             title={tx('Copy full source text', '复制完整原文')}
+            aria-label={tx('Copy full source text', '复制完整原文')}
           >
-            <span className="material-symbols-outlined !text-[16px]">content_copy</span>
-            <span>{copiedTranscript ? tx('Copied', '已复制') : tx('Copy', '复制')}</span>
+            <span className="material-symbols-outlined !text-[16px]">
+              {copiedTranscript ? 'check' : 'content_copy'}
+            </span>
           </button>
         </div>
 
@@ -1032,6 +1121,13 @@ const NotebookDetail: NextPage = () => {
                 const active = video.id === activeVideoId
                 const meta = getVideoStatusMeta(video.status, language)
                 const processing = isProcessing(video.status)
+                const createdAtTs = new Date(video.created_at || 0).getTime()
+                const updatedAtTs = new Date(video.updated_at || 0).getTime()
+                const hasInterpretedTime =
+                  Number.isFinite(createdAtTs) &&
+                  Number.isFinite(updatedAtTs) &&
+                  updatedAtTs - createdAtTs > 1000 &&
+                  (video.status === 'ready' || video.status === 'error' || video.status === 'no-subtitle')
                 return (
                   <button
                     key={video.id}
@@ -1089,6 +1185,26 @@ const NotebookDetail: NextPage = () => {
                             {getInterpretationModeMeta(video.interpretation_mode).label}
                           </span>
                           <span>{getStageDescription(video.status, language)}</span>
+                        </div>
+                        <div className="dark:text-white/45 mt-1 flex items-center gap-3 text-[11px] text-text-muted/90">
+                          <span
+                            className="inline-flex items-center gap-1"
+                            title={tx('Imported time', '导入时间')}
+                            aria-label={tx('Imported time', '导入时间')}
+                          >
+                            <span className="material-symbols-outlined !text-[13px]">download</span>
+                            <span>{formatTimestamp(video.created_at, language)}</span>
+                          </span>
+                          {hasInterpretedTime ? (
+                            <span
+                              className="inline-flex items-center gap-1"
+                              title={tx('Last interpretation time', '最近解读时间')}
+                              aria-label={tx('Last interpretation time', '最近解读时间')}
+                            >
+                              <span className="material-symbols-outlined !text-[13px]">auto_awesome</span>
+                              <span>{formatTimestamp(video.updated_at, language)}</span>
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -1298,9 +1414,13 @@ const NotebookDetail: NextPage = () => {
 
                 <form onSubmit={handleAsk} className="mt-3 flex shrink-0 items-center gap-2">
                   <textarea
+                    ref={chatInputRef}
                     rows={1}
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value)
+                      autoResizeChatInput(e.currentTarget)
+                    }}
                     onCompositionStart={() => setIsChatInputComposing(true)}
                     onCompositionEnd={() => setIsChatInputComposing(false)}
                     className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"

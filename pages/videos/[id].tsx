@@ -320,7 +320,7 @@ const VideoDetail: NextPage = () => {
                     >
                       <span className="pt-1 font-mono text-sm text-primary/90">{item.time || '--:--'}</span>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-text-main dark:text-white">{item.title}</h3>
+                        <h3 className="font-semibold text-blue-700 dark:text-blue-300">{item.title}</h3>
                         <p className="mt-1 text-sm leading-relaxed text-text-muted dark:text-white/60">
                           {item.summary}
                         </p>
