@@ -11,6 +11,14 @@ export function getUserIdFromRequest(req: NextApiRequest): string {
   return normalizeHeaderValue(req.headers['x-user-id'])
 }
 
+export function getUserEmailFromRequest(req: NextApiRequest): string {
+  return normalizeHeaderValue(req.headers['x-user-email'])
+}
+
+export function getUserNameFromRequest(req: NextApiRequest): string {
+  return normalizeHeaderValue(req.headers['x-user-name'])
+}
+
 function getDevAuthMode(): string {
   return String(process.env.DEV_AUTH_MODE || '')
     .trim()

@@ -19,7 +19,16 @@ type Notebook = {
 
 type MePayload = {
   user_id: string
+  user_email?: string | null
+  display_name?: string | null
   tier: SubscriptionTier
+}
+
+function formatUserLabel(me: MePayload | null | undefined): string {
+  const raw = String(me?.display_name || me?.user_email || me?.user_id || '').trim()
+  if (!raw) return '-'
+  if (raw.length <= 16) return raw
+  return `${raw.slice(0, 8)}...${raw.slice(-4)}`
 }
 
 const fetcher = async (url: string) => {
@@ -123,21 +132,24 @@ const Home: NextPage = () => {
               <div className="flex flex-1 items-center justify-end gap-6 sm:gap-8">
                 <nav className="hidden items-center gap-6 sm:flex">
                   <a
-                    className="text-sm font-medium text-text-main transition-colors hover:text-text-muted dark:text-white dark:hover:text-white/80"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-text-main transition-colors hover:text-text-muted dark:text-white dark:hover:text-white/80"
                     href="/notebooks"
                   >
+                    <span className="material-symbols-outlined text-[16px]">menu_book</span>
                     {tx('Notebooks', '笔记本')}
                   </a>
                   <a
-                    className="text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
                     href="/"
                   >
+                    <span className="material-symbols-outlined text-[16px]">home</span>
                     {tx('Hero', '首页')}
                   </a>
                   <a
-                    className="text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
+                    className="inline-flex items-center gap-1 text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
                     href="/settings"
                   >
+                    <span className="material-symbols-outlined text-[16px]">settings</span>
                     {tx('Settings', '设置')}
                   </a>
                 </nav>
@@ -148,8 +160,11 @@ const Home: NextPage = () => {
                     <span className="material-symbols-outlined text-[14px] text-text-muted dark:text-slate-300">
                       account_circle
                     </span>
-                    <span className="max-w-[180px] truncate text-text-main dark:text-slate-100">
-                      {me?.user_id || '-'}
+                    <span
+                      className="max-w-[180px] truncate text-text-main dark:text-slate-100"
+                      title={String(me?.display_name || me?.user_email || me?.user_id || '')}
+                    >
+                      {formatUserLabel(me)}
                     </span>
                     <MembershipBadge tier={me?.tier || 'free'} />
                   </div>
