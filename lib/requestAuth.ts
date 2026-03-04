@@ -15,8 +15,18 @@ export function getUserEmailFromRequest(req: NextApiRequest): string {
   return normalizeHeaderValue(req.headers['x-user-email'])
 }
 
-export function getUserNameFromRequest(req: NextApiRequest): string {
-  return normalizeHeaderValue(req.headers['x-user-name'])
+export function getUserNameB64FromRequest(req: NextApiRequest): string {
+  return normalizeHeaderValue(req.headers['x-user-name-b64'])
+}
+
+export function decodeUserNameFromB64(raw: string): string {
+  const val = String(raw || '').trim()
+  if (!val) return ''
+  try {
+    return Buffer.from(val, 'base64url').toString('utf8').trim()
+  } catch {
+    return ''
+  }
 }
 
 function getDevAuthMode(): string {
