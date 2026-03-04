@@ -9,15 +9,19 @@ import {
   validateYouTubeAuthLocal,
   type YouTubeAuthMode,
 } from '~/lib/youtube/auth'
+import { requireUserId } from '~/lib/requestAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method === 'GET') {
-    const record = await getYouTubeAuthRecord()
+    const record = await getYouTubeAuthRecord(userId)
     if (!record) {
       res.status(200).json({ configured: false })
       return
     }
-    const decrypted = await getDecryptedYouTubeAuth()
+    const decrypted = await getDecryptedYouTubeAuth(userId)
     res.status(200).json({
       configured: true,
       mode: record.mode,
@@ -33,22 +37,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     const { mode, value } = req.body || {}
     if (mode !== 'cookie' && mode !== 'cookies_txt') {
-      res.status(400).json({ error: 'mode 只能是 "cookie" 或 "cookies_txt"' })
+      res.status(400).json({ error: 'mode must be "cookie" or "cookies_txt"' })
       return
     }
     if (!value || typeof value !== 'string') {
-      res.status(400).json({ error: '缺少凭据内容 value' })
+      res.status(400).json({ error: 'Missing credential value' })
       return
     }
 
     try {
-      await setYouTubeAuth({ mode: mode as YouTubeAuthMode, value })
+      await setYouTubeAuth(userId, { mode: mode as YouTubeAuthMode, value })
       const validation = validateYouTubeAuthLocal({ mode: mode as YouTubeAuthMode, value })
       await updateYouTubeAuthValidation(
+        userId,
         validation.valid ? 'valid' : 'invalid',
         validation.valid ? undefined : validation.message,
       )
-      const record = await getYouTubeAuthRecord()
+      const record = await getYouTubeAuthRecord(userId)
       res.status(200).json({
         ok: true,
         configured: true,
@@ -58,13 +63,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         validation,
       })
     } catch (e: any) {
-      res.status(500).json({ error: e?.message || '保存 YouTube 登录凭据失败' })
+      res.status(500).json({ error: e?.message || 'Failed to save YouTube credentials' })
     }
     return
   }
 
   if (req.method === 'DELETE') {
-    await clearYouTubeAuth()
+    await clearYouTubeAuth(userId)
     res.status(200).json({ ok: true })
     return
   }

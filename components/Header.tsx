@@ -18,7 +18,7 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
           </a>
           <a href={BASE_DOMAIN}>
             <h2 className={clsx('text-lg sm:text-2xl', poppins.className)}>
-              <span className="text-pink-400">Bibi Terminator</span> BibiGPT
+              <span className="text-pink-400">Open Source</span> Professor
             </h2>
           </a>
           <div
@@ -103,7 +103,7 @@ export default function Header({ showSingIn }: { showSingIn: (show: boolean) => 
             <Image src="/shortcuts.png" alt="logo" width={33} height={33} className="max-w-none" />
             <span className="relin-paragraph-target hidden text-slate-500 sm:block">(iOS)</span>
           </a>
-          <a href="https://github.com/JimmyLv/BibiGPT" rel="noreferrer noopener" target="_blank" className="">
+          <a href="https://github.com/chenjiangbo/Professor" rel="noreferrer noopener" target="_blank" className="">
             <Github width="33" height="33" />
           </a>
           <SignIn showSingIn={showSingIn} />

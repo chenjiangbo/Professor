@@ -1,5 +1,5 @@
 import { Lexend } from '@next/font/google'
-// Auth 相关依赖暂未使用，避免强制要求 Supabase 环境变量
+// Auth-related dependencies are not used yet, to avoid forcing Supabase env vars.
 // import { createBrowserSupabaseClient, Session } from '@supabase/auth-helpers-nextjs'
 // import { SessionContextProvider } from '@supabase/auth-helpers-react'
 import { Analytics } from '@vercel/analytics/react'
@@ -29,7 +29,7 @@ function MyApp({
 }>) {
   const { SignInModal, setShowSignInModal: showSingIn } = useSignInModal()
 
-  // 强制同步 html class/data-theme，防止切换不生效
+  // Force-sync html class/data-theme so theme switching always applies.
   const ThemeSync = () => {
     const { theme, resolvedTheme } = useTheme()
     useEffect(() => {

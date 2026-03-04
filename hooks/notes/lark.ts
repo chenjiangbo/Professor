@@ -24,7 +24,7 @@ export default function useSaveToLark(note: string, video: string, webhook: stri
             elements: [
               {
                 tag: 'plain_text',
-                content: `原视频：${video}`,
+                content: `Original video: ${video}`,
               },
             ],
           },
@@ -35,7 +35,7 @@ export default function useSaveToLark(note: string, video: string, webhook: stri
                 tag: 'button',
                 text: {
                   tag: 'plain_text',
-                  content: '观看视频',
+                  content: 'Watch video',
                 },
                 type: 'primary',
                 multi_url: {
@@ -48,7 +48,7 @@ export default function useSaveToLark(note: string, video: string, webhook: stri
         header: {
           template: 'blue',
           title: {
-            content: 'BibiGPT 视频摘要',
+            content: 'Professor Video Summary',
             tag: 'plain_text',
           },
         },
@@ -75,7 +75,7 @@ export default function useSaveToLark(note: string, video: string, webhook: stri
     } else {
       toast({
         title: response.status.toString(),
-        description: '成功推送到 飞书/Lark Webhook',
+        description: 'Successfully sent to Lark webhook.',
       })
     }
     setLoading(false)

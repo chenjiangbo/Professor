@@ -173,12 +173,17 @@ function langCodeScore(code: string, langNorm: 'zh' | 'en' | 'unknown') {
   return 0
 }
 
-function buildAttemptPlan(sortedCandidates: SubtitleCandidate[]): SubtitleCandidate[] {
+function buildAttemptPlan(
+  sortedCandidates: SubtitleCandidate[],
+  preferredLanguage: 'zh-CN' | 'en-US',
+): SubtitleCandidate[] {
+  const preferredLangNorm: 'zh' | 'en' = preferredLanguage === 'zh-CN' ? 'zh' : 'en'
+  const secondaryLangNorm: 'zh' | 'en' = preferredLangNorm === 'zh' ? 'en' : 'zh'
   const buckets: Array<{ langNorm: 'zh' | 'en'; isAi: boolean }> = [
-    { langNorm: 'zh', isAi: false },
-    { langNorm: 'zh', isAi: true },
-    { langNorm: 'en', isAi: false },
-    { langNorm: 'en', isAi: true },
+    { langNorm: preferredLangNorm, isAi: false },
+    { langNorm: preferredLangNorm, isAi: true },
+    { langNorm: secondaryLangNorm, isAi: false },
+    { langNorm: secondaryLangNorm, isAi: true },
   ]
   const picked: SubtitleCandidate[] = []
 
@@ -234,16 +239,20 @@ function pickDownloadedSubtitleFile(files: string[], candidate: SubtitleCandidat
   return scored[0]?.filePath || null
 }
 
-export async function fetchSubtitleByYtDlp(url: string): Promise<YtDlpSubtitle | null> {
+export async function fetchSubtitleByYtDlp(
+  userId: string,
+  url: string,
+  preferredLanguage: 'zh-CN' | 'en-US' = 'en-US',
+): Promise<YtDlpSubtitle | null> {
   const metaDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ytdlp-meta-'))
-  const metaAuthArgs = await buildYouTubeAuthArgs(metaDir)
+  const metaAuthArgs = await buildYouTubeAuthArgs(userId, metaDir)
   const meta = await runYtDlpJson([...metaAuthArgs, '--no-playlist', url], metaDir)
   const title = String(meta?.title || '').trim()
   const videoId = String(meta?.id || '').trim()
   const candidates = collectCandidates(meta)
   const picked = pickBestCandidate(candidates)
   const sortedCandidates = sortCandidatesByPriority(candidates)
-  const attemptPlan = buildAttemptPlan(sortedCandidates)
+  const attemptPlan = buildAttemptPlan(sortedCandidates, preferredLanguage)
 
   console.info(
     `[ytdlp-subtitle-meta] ${JSON.stringify({
@@ -288,7 +297,7 @@ export async function fetchSubtitleByYtDlp(url: string): Promise<YtDlpSubtitle |
       '-o',
       outputTemplate,
     ]
-    const authArgs = await buildYouTubeAuthArgs(tempDir)
+    const authArgs = await buildYouTubeAuthArgs(userId, tempDir)
     if (authArgs.length) args.unshift(...authArgs)
     if (candidate.isAi) {
       args.push('--write-auto-subs', '--no-write-subs')
@@ -301,20 +310,22 @@ export async function fetchSubtitleByYtDlp(url: string): Promise<YtDlpSubtitle |
       await runYtDlp({ args, cwd: tempDir })
       const subtitleFiles = await listSubtitleFiles(tempDir)
       if (!subtitleFiles.length) {
-        attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): 未下载到字幕文件`)
+        attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): subtitle file was not downloaded`)
         continue
       }
 
       const selectedPath = pickDownloadedSubtitleFile(subtitleFiles, candidate)
       if (!selectedPath) {
-        attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): 未匹配到目标字幕文件`)
+        attemptErrors.push(
+          `${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): target subtitle file was not matched`,
+        )
         continue
       }
       const raw = await fs.readFile(selectedPath, 'utf8')
       const ext = path.extname(selectedPath).toLowerCase()
       const text = parseSubtitleFile(ext, raw)
       if (!text) {
-        attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): 字幕内容为空`)
+        attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): subtitle content is empty`)
         continue
       }
 
@@ -336,9 +347,9 @@ export async function fetchSubtitleByYtDlp(url: string): Promise<YtDlpSubtitle |
         filePath: selectedPath,
       }
     } catch (e: any) {
-      attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): ${e?.message || '下载失败'}`)
+      attemptErrors.push(`${candidate.lang}(${candidate.isAi ? 'auto' : 'human'}): ${e?.message || 'download failed'}`)
     }
   }
 
-  throw new Error(`yt-dlp 字幕下载失败：${attemptErrors.slice(0, 5).join(' | ')}`)
+  throw new Error(`yt-dlp subtitle download failed: ${attemptErrors.slice(0, 5).join(' | ')}`)
 }

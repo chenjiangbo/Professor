@@ -68,22 +68,23 @@ export async function summarizeVideoText(title: string, transcript: string, vide
   const safeTitle = String(title || 'Untitled video').trim()
   const cleanTranscript = String(transcript || '').trim()
   const safeTranscript = limitTranscriptByteLength(cleanTranscript, 12000)
-  const outputLanguage = videoConfig?.outputLanguage || '中文'
+  const outputLanguage = videoConfig?.outputLanguage || 'English'
   const model = process.env.LLM_MODEL || 'gpt-4o-mini'
   const llmApiKey = apiKey || process.env.LLM_API_KEY || ''
   const chunks = splitTextForSummarization(cleanTranscript, 12000, 12)
 
   if (chunks.length <= 1) {
     const prompt = [
-      `视频标题：${safeTitle}`,
+      `Video title: ${safeTitle}`,
       '',
-      '请基于以下字幕生成高密度学习摘要，要求：',
-      '1) 不遗漏关键事实与结论。',
-      '2) 输出包含“学习总览”和“关键要点”两部分。',
-      '3) 关键要点用项目符号，避免空话。',
-      `4) 输出语言：${outputLanguage}。`,
+      'Generate a dense learning summary from the transcript below.',
+      'Requirements:',
+      '1) Do not miss key facts or conclusions.',
+      '2) Output must contain "Learning Overview" and "Key Points".',
+      '3) Key Points should use bullets and avoid vague statements.',
+      `4) Output language: ${outputLanguage}.`,
       '',
-      '字幕：',
+      'Transcript:',
       safeTranscript,
     ].join('\n')
     const payload = {
@@ -99,13 +100,14 @@ export async function summarizeVideoText(title: string, transcript: string, vide
   const partials: string[] = []
   for (let i = 0; i < chunks.length; i += 1) {
     const chunkPrompt = [
-      `视频标题：${safeTitle}`,
-      `这是第 ${i + 1}/${chunks.length} 段内容。`,
+      `Video title: ${safeTitle}`,
+      `This is chunk ${i + 1}/${chunks.length}.`,
       '',
-      '请只总结本段，输出 5-10 条关键信息点，尽量保留事实、数据、因果关系，不要空话。',
-      `输出语言：${outputLanguage}。`,
+      'Summarize only this chunk in 5-10 key points.',
+      'Preserve facts, data, and causal relationships where possible.',
+      `Output language: ${outputLanguage}.`,
       '',
-      '内容：',
+      'Content:',
       chunks[i],
     ].join('\n')
     const payload = {
@@ -119,17 +121,17 @@ export async function summarizeVideoText(title: string, transcript: string, vide
   }
 
   const mergePrompt = [
-    `视频标题：${safeTitle}`,
-    `你将收到 ${partials.length} 份分段摘要，请合并为最终输出。`,
+    `Video title: ${safeTitle}`,
+    `You will receive ${partials.length} chunk summaries. Merge them into a final output.`,
     '',
-    '要求：',
-    '1) 不遗漏关键事实与结论；同义内容可合并去重。',
-    '2) 输出必须包含“学习总览”和“关键要点”两部分。',
-    '3) 关键要点用项目符号；优先保留高价值细节（数据、结论、推导关系）。',
-    `4) 输出语言：${outputLanguage}。`,
+    'Requirements:',
+    '1) Do not miss key facts or conclusions; deduplicate synonymous points.',
+    '2) Output must contain "Learning Overview" and "Key Points".',
+    '3) Key Points should use bullets and prioritize high-value details (data, conclusions, reasoning links).',
+    `4) Output language: ${outputLanguage}.`,
     '',
-    '分段摘要：',
-    ...partials.map((part, idx) => `### 第${idx + 1}段摘要\n${part}`),
+    'Chunk summaries:',
+    ...partials.map((part, idx) => `### Chunk ${idx + 1}\n${part}`),
   ].join('\n')
 
   const mergePayload = {

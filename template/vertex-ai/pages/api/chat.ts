@@ -2,8 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { streamText, convertToModelMessages, pipeUIMessageStreamToResponse, type UIMessage } from 'ai'
 import { randomUUID } from 'crypto'
 import { pool } from '~/lib/db'
-import { getVideo, listVideos } from '~/lib/repo'
+import { getNotebook, getVideo, listVideos } from '~/lib/repo'
 import { createVertexProvider, resolveVertexModel } from '~/lib/ai/vertex'
+import { requireUserId } from '~/lib/requestAuth'
 
 function buildVideoContext(video: any): string {
   const title = String(video?.title || '').trim()
@@ -30,22 +31,22 @@ function buildVideoContext(video: any): string {
 
 function buildPromptPrefix(context: string) {
   return `
-你是一位深受学生喜爱的、博学且极具启发性的深度学习导师。
+You are a knowledgeable and inspiring learning coach.
 
-【当前学习资料】：
-${context || '(当前未选择资料，上下文为空)'}
+[Current Learning Materials]
+${context || '(No material selected; context is empty.)'}
 
-【你的辅导哲学】：
-1. 融会贯通：解答用户疑问时，请先从【当前学习资料】中提取核心观点作为解答基石。
-2. 无界知识：如果用户提问超出资料范围（例如追问底层原理、实操方法或最新案例），不要回答“资料未提及”。请直接调动你的知识储备补充解答。
-3. 透明交流：在自然流畅的对话中，让用户感知知识来源。例如：“视频中提到了...，另外结合目前研究...”
-4. 拒绝机械：像真正聪明的人类导师一样交流。可使用恰当比喻解释复杂概念。
-5. 事实求证：当涉及具体数据、文献、政策或时效性事件时，请明确说明结论依据，避免武断表达。
+[Guidance Principles]
+1. Start from the provided learning materials whenever they are relevant.
+2. If the question goes beyond the materials, use your general knowledge to fill in the gaps instead of refusing.
+3. Be transparent about source grounding in natural language when useful (for example: "In the video..., and based on current research...").
+4. Avoid robotic phrasing. Explain complex ideas with clear analogies when helpful.
+5. For concrete data, policies, papers, or time-sensitive events, state your basis and avoid overconfident claims.
 
-【输出要求】：
-- 回答使用清晰的 Markdown。
-- 直接输出最终答案，不要输出你的内部思考、草稿、评估过程、查核清单或“我将如何回答”的计划。
-- 不要输出类似“测评：”“结构化草稿：”“Let's refine...”“Response draft...”这类中间过程文本。
+[Output Requirements]
+- Respond in clear Markdown.
+- Output only the final answer.
+- Do not output hidden reasoning, scratch notes, checklists, or drafting text such as "Response draft" or "Let's refine...".
 `.trim()
 }
 
@@ -57,15 +58,36 @@ function normalizeModelName(input: unknown) {
 }
 
 function normalizeIncomingMessages(messages: UIMessage[]) {
-  return messages.map((msg: any) => {
-    if (msg?.role === 'developer') {
-      return { ...msg, role: 'system' }
-    }
-    return msg
-  }) as UIMessage[]
+  const allowedRoles = new Set(['system', 'user', 'assistant', 'tool'])
+  return (Array.isArray(messages) ? messages : [])
+    .map((msg: any, idx: number) => {
+      const rawRole = String(msg?.role || '').trim()
+      const role = rawRole === 'developer' ? 'system' : rawRole
+      if (!allowedRoles.has(role)) return null
+
+      const rawParts = Array.isArray(msg?.parts) ? msg.parts : []
+      const parts = rawParts.length
+        ? rawParts
+        : typeof msg?.content === 'string' && msg.content.trim()
+        ? [{ type: 'text', text: msg.content }]
+        : []
+
+      if (!parts.length && role !== 'tool') return null
+
+      return {
+        ...msg,
+        id: String(msg?.id || `m-${Date.now()}-${idx}`),
+        role,
+        parts,
+      }
+    })
+    .filter(Boolean) as UIMessage[]
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' })
     return
@@ -99,9 +121,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let videos: any[] = []
     if (Array.isArray(videoIds) && videoIds.length > 0) {
-      videos = (await Promise.all(videoIds.map((id: string) => getVideo(id)))).filter(Boolean) as any[]
+      videos = (await Promise.all(videoIds.map((id: string) => getVideo(userId, id)))).filter(Boolean) as any[]
     } else {
-      videos = await listVideos(notebookId)
+      const notebook = await getNotebook(userId, notebookId)
+      if (!notebook) {
+        res.status(404).json({ error: 'Notebook not found' })
+        return
+      }
+      videos = await listVideos(userId, notebookId)
     }
 
     const context = videos.map((v: any) => buildVideoContext(v)).join('\n\n---\n\n')
@@ -113,7 +140,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         lastMessage.parts
           ?.filter((p: any) => p.type === 'text')
           .map((p: any) => p.text)
-          .join('') || ''
+          .join('') || String((lastMessage as any).content || '')
 
       if (textContent) {
         try {
@@ -152,7 +179,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error('[Chat API] Error:', error)
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || 'Internal Server Error' })
+      res.status(500).json({ error: error.message || 'Chat service internal error' })
     }
   }
 }

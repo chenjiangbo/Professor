@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { deleteNotebook, getNotebook, updateNotebook } from '~/lib/repo'
+import { requireUserId } from '~/lib/requestAuth'
 
 function withNotebookTimestamps(row: any) {
   return {
@@ -10,15 +11,18 @@ function withNotebookTimestamps(row: any) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: '缺少参数 id' })
+    res.status(400).json({ error: 'Missing required parameter: id' })
     return
   }
   if (req.method === 'GET') {
-    const data = await getNotebook(id)
+    const data = await getNotebook(userId, id)
     if (!data) {
-      res.status(404).json({ error: 'Notebook 不存在' })
+      res.status(404).json({ error: 'Notebook not found' })
       return
     }
     res.status(200).json(withNotebookTimestamps(data))
@@ -26,16 +30,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (req.method === 'PATCH') {
     const { title, description } = req.body || {}
-    const updated = await updateNotebook(id, { title, description })
+    const updated = await updateNotebook(userId, id, { title, description })
     if (!updated) {
-      res.status(404).json({ error: 'Notebook 不存在' })
+      res.status(404).json({ error: 'Notebook not found' })
       return
     }
     res.status(200).json(withNotebookTimestamps(updated))
     return
   }
   if (req.method === 'DELETE') {
-    await deleteNotebook(id)
+    await deleteNotebook(userId, id)
     res.status(204).end()
     return
   }

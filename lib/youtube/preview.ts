@@ -46,16 +46,17 @@ export function normalizeYouTubeVideoId(inputUrl: string): string {
   return inputUrl
 }
 
-export async function fetchYouTubeVideoMeta(url: string): Promise<{ title: string; videoId: string }> {
+export async function fetchYouTubeVideoMeta(userId: string, url: string): Promise<{ title: string; videoId: string }> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ytdlp-preview-'))
-  const authArgs = await buildYouTubeAuthArgs(tempDir)
+  const authArgs = await buildYouTubeAuthArgs(userId, tempDir)
   const data = await runYtDlpJson([...authArgs, '--no-playlist', url], tempDir)
   const videoId = String(data?.id || normalizeYouTubeVideoId(url)).trim()
-  const title = String(data?.title || '未命名视频').trim() || '未命名视频'
+  const title = String(data?.title || 'Untitled video').trim() || 'Untitled video'
   return { title, videoId }
 }
 
 export async function buildYouTubePreviewItems(
+  userId: string,
   inputUrl: string,
   options?: { expandMode?: YouTubeExpandMode },
 ): Promise<YouTubePreviewItem[]> {
@@ -63,12 +64,12 @@ export async function buildYouTubePreviewItems(
 
   if (expandMode === 'all') {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ytdlp-playlist-'))
-    const authArgs = await buildYouTubeAuthArgs(tempDir)
+    const authArgs = await buildYouTubeAuthArgs(userId, tempDir)
     const data = await runYtDlpJson([...authArgs, '--flat-playlist', inputUrl], tempDir)
     const entries = Array.isArray(data?.entries) ? data.entries : []
 
     if (!entries.length) {
-      const current = await fetchYouTubeVideoMeta(inputUrl)
+      const current = await fetchYouTubeVideoMeta(userId, inputUrl)
       return [
         {
           externalId: `yt-${current.videoId}`,
@@ -83,7 +84,7 @@ export async function buildYouTubePreviewItems(
       .map((entry: any) => {
         const id = String(entry?.id || '').trim()
         if (!id) return null
-        const title = String(entry?.title || '').trim() || `YouTube 视频 ${id}`
+        const title = String(entry?.title || '').trim() || `YouTube video ${id}`
         return {
           externalId: `yt-${id}`,
           title,
@@ -94,7 +95,7 @@ export async function buildYouTubePreviewItems(
       .filter(Boolean) as YouTubePreviewItem[]
   }
 
-  const current = await fetchYouTubeVideoMeta(inputUrl)
+  const current = await fetchYouTubeVideoMeta(userId, inputUrl)
   return [
     {
       externalId: `yt-${current.videoId}`,

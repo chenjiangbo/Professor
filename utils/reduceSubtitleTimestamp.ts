@@ -1,7 +1,7 @@
 import { CommonSubtitleItem } from '~/lib/types'
 
 export type YoutubeSubtitleItem = { start: number; lines: string[] }
-/*{ "from": 16.669, "content": "让ppt变得更加精彩" },*/
+/* { "from": 16.669, "content": "make the slides more engaging" } */
 export type BilibiliSubtitleItem = { from: number; content: string }
 
 export function reduceYoutubeSubtitleTimestamp(subtitles: Array<YoutubeSubtitleItem> = []) {
@@ -30,18 +30,18 @@ export function reduceSubtitleTimestamp<T>(
   getText: (i: T) => string,
   shouldShowTimestamp?: boolean,
 ): Array<CommonSubtitleItem> {
-  // 把字幕数组总共分成 20 组
+  // Split subtitles into grouped chunks.
   const TOTAL_GROUP_COUNT = 30
-  // 如果字幕不够多，就每7句话合并一下
+  // If subtitles are sparse, merge every ~7 lines.
   const MINIMUM_COUNT_ONE_GROUP = 7
   const eachGroupCount =
     subtitles.length > TOTAL_GROUP_COUNT ? subtitles.length / TOTAL_GROUP_COUNT : MINIMUM_COUNT_ONE_GROUP
 
   return subtitles.reduce((accumulator: CommonSubtitleItem[], current: T, index: number) => {
-    // 计算当前元素在哪一组
+    // Compute current item group.
     const groupIndex: number = Math.floor(index / MINIMUM_COUNT_ONE_GROUP)
 
-    // 如果是当前组的第一个元素，初始化这一组的字符串
+    // Initialize group text with its first item.
     if (!accumulator[groupIndex]) {
       accumulator[groupIndex] = {
         // 5.88 -> 5.9
@@ -52,7 +52,7 @@ export function reduceSubtitleTimestamp<T>(
       }
     }
 
-    // 将当前元素添加到当前组的字符串末尾
+    // Append current text to group content.
     accumulator[groupIndex].text = accumulator[groupIndex].text + getText(current) + ' '
 
     return accumulator

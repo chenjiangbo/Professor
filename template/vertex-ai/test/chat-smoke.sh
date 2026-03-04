@@ -9,7 +9,7 @@ if [[ -n "${NOTEBOOK_ID}" ]]; then
 {
   "notebookId": "${NOTEBOOK_ID}",
   "messages": [
-    { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "请总结当前资料的核心观点，并给出1个可执行建议。" }] }
+    { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "Summarize the core points in the current material and provide one actionable suggestion." }] }
   ]
 }
 JSON
@@ -17,7 +17,7 @@ JSON
 else
   PAYLOAD='{
     "messages": [
-      { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "请解释什么是第一性原理，并举一个商业场景例子。" }] }
+      { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "Explain first-principles thinking and give one business scenario example." }] }
     ]
   }'
 fi

@@ -15,7 +15,8 @@ model_list:
   - model_name: ollama-qwen3-vl
     litellm_params:
       model: 'ollama/qwen3-vl:30b'
-      # 当 litellm 在容器内时使用 host.docker.internal 访问宿主机 Ollama；如果两者同容器网络，请改成 ollama:11434
+      # If litellm runs in a container, use host.docker.internal to reach host Ollama.
+      # If both services share a Docker network, switch to ollama:11434.
       api_base: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       api_key: 'dummy'
       stream: true

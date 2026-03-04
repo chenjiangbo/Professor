@@ -1,16 +1,16 @@
 export const PROMPT_LANGUAGE_MAP: { [key: string]: string } = {
   English: 'en-US',
-  中文: 'zh-CN',
-  繁體中文: 'zh-TW',
-  日本語: 'ja-JP',
+  'Chinese (Simplified)': 'zh-CN',
+  'Chinese (Traditional)': 'zh-TW',
+  Japanese: 'ja-JP',
   Italiano: 'it-IT',
   Deutsch: 'de-DE',
-  Español: 'es-ES',
-  Français: 'fr-FR',
+  Spanish: 'es-ES',
+  French: 'fr-FR',
   Nederlands: 'nl-NL',
-  한국어: 'ko-KR',
-  ភាសាខ្មែរ: 'km-KH',
-  हिंदी: 'hi-IN',
+  Korean: 'ko-KR',
+  Khmer: 'km-KH',
+  Hindi: 'hi-IN',
 }
 
-export const DEFAULT_LANGUAGE = 'zh-CN'
+export const DEFAULT_LANGUAGE = 'en-US'

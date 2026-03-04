@@ -15,7 +15,7 @@ export function useSaveToFlomo(note: string, video: string, webhook: string) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        content: `${note}\n\n原视频：${video}\n#BibiGpt`,
+        content: `${note}\n\nOriginal video: ${video}\n#Professor`,
       }),
     })
     const json = await response.json()
@@ -30,7 +30,7 @@ export function useSaveToFlomo(note: string, video: string, webhook: string) {
     } else {
       toast({
         title: response.status.toString(),
-        description: '保存成功！快去 Flomo 查看吧。',
+        description: 'Saved successfully. Check it in Flomo.',
       })
     }
     setLoading(false)

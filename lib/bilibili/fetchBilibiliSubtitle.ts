@@ -2,11 +2,12 @@ import { reduceBilibiliSubtitleTimestamp } from '~/utils/reduceSubtitleTimestamp
 import { fetchBilibiliSubtitleUrls } from './fetchBilibiliSubtitleUrls'
 
 export async function fetchBilibiliSubtitle(
+  userId: string,
   videoId: string,
   pageNumber?: null | string,
   shouldShowTimestamp?: boolean,
 ) {
-  const res = await fetchBilibiliSubtitleUrls(videoId, pageNumber)
+  const res = await fetchBilibiliSubtitleUrls(userId, videoId, pageNumber)
   const { title, desc, dynamic, subtitle } = res || {}
   const hasDescription = desc || dynamic
   const descriptionText = hasDescription ? `${desc} ${dynamic}` : undefined

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { fetchVertexCostSummary } from '~/lib/monitoring/vertexCost'
+import { isAdminUserId, requireUserId } from '~/lib/requestAuth'
 
 function parseWindowDays(raw: string | string[] | undefined) {
   const value = Array.isArray(raw) ? raw[0] : raw
@@ -8,14 +9,22 @@ function parseWindowDays(raw: string | string[] | undefined) {
   }
   const numeric = Number.parseInt(value, 10)
   if (!Number.isInteger(numeric) || numeric <= 0 || numeric > 90) {
-    throw new Error(`查询参数 days 非法：${value}。必须是 1 到 90 之间的整数。`)
+    throw new Error(`Invalid query parameter days: ${value}. It must be an integer between 1 and 90.`)
   }
   return numeric
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'GET') {
-    res.status(405).json({ error: '不支持该请求方法' })
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+
+  if (!isAdminUserId(userId)) {
+    res.status(403).json({ error: 'Forbidden' })
     return
   }
 
@@ -26,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error('[Vertex Cost Dashboard] API Error:', error)
     res.status(500).json({
-      error: error?.message || '获取 Vertex 成本指标失败',
+      error: error?.message || 'Failed to fetch Vertex cost metrics',
     })
   }
 }

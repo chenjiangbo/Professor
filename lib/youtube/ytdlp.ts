@@ -14,7 +14,7 @@ function resolveYtDlpTimeoutMs() {
   if (!raw) return 60_000
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error('YTDLP_TIMEOUT_MS 必须是正整数毫秒值')
+    throw new Error('YTDLP_TIMEOUT_MS must be a positive integer in milliseconds')
   }
   return Math.floor(parsed)
 }
@@ -51,11 +51,11 @@ export async function runYtDlp({ args, cwd }: RunYtDlpArgs): Promise<{ stdout: s
     child.on('close', (code) => {
       clearTimeout(timer)
       if (timedOut) {
-        reject(new Error(`yt-dlp 执行超时（>${timeoutMs}ms）`))
+        reject(new Error(`yt-dlp execution timed out (>${timeoutMs}ms)`))
         return
       }
       if (code !== 0) {
-        reject(new Error(`yt-dlp 执行失败（exit=${code}）：${stderr.slice(-1200)}`))
+        reject(new Error(`yt-dlp execution failed (exit=${code}): ${stderr.slice(-1200)}`))
         return
       }
       resolve({ stdout, stderr })
@@ -68,11 +68,11 @@ export async function runYtDlpJson(args: string[], cwd?: string): Promise<any> {
   const { stdout } = await runYtDlp({ args: fullArgs, cwd })
   const text = String(stdout || '').trim()
   if (!text) {
-    throw new Error('yt-dlp 未返回 JSON 数据')
+    throw new Error('yt-dlp did not return JSON output')
   }
   try {
     return JSON.parse(text)
   } catch {
-    throw new Error('yt-dlp 返回的 JSON 解析失败')
+    throw new Error('yt-dlp returned invalid JSON')
   }
 }

@@ -14,7 +14,7 @@ ENV NODE_OPTIONS=--max_old_space_size=2048
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 
-# build prerequisites for native deps (e.g., bufferutil) + npm 网络重试/镜像
+# Build prerequisites for native dependencies (e.g., bufferutil) + npm retry/mirror setup
 RUN apk add --no-cache python3 make g++ \
     && apk add --no-cache curl unzip ffmpeg yt-dlp \
     && npm config set fetch-retries 5 \

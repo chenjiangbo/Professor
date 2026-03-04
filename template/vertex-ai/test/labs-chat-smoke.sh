@@ -5,7 +5,7 @@ BASE_URL="${BASE_URL:-http://localhost:3000}"
 
 PAYLOAD='{
   "messages": [
-    { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "请用3点解释系统化学习和碎片化学习的区别。" }] }
+    { "id": "u1", "role": "user", "parts": [{ "type": "text", "text": "Explain in 3 points the difference between systematic learning and fragmented learning." }] }
   ]
 }'
 

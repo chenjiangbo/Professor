@@ -1,11 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { getVideo, updateVideo } from '~/lib/repo'
+import { getVideo, updateVideoForUser } from '~/lib/repo'
 import { runVideoImportInBackground } from '~/lib/import/processVideoImport'
 import { extractPageNumberFromUrl } from '~/lib/bilibili/preview'
 import { normalizeInterpretationMode } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
+import { requireUserId } from '~/lib/requestAuth'
+import { parseRequiredAppLanguage } from '~/lib/i18n'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     res.status(405).end()
@@ -14,22 +19,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: '缺少参数 id' })
+    res.status(400).json({ error: 'Missing required parameter: id' })
     return
   }
 
-  const current = await getVideo(id)
+  const current = await getVideo(userId, id)
   if (!current) {
-    res.status(404).json({ error: '资源不存在' })
+    res.status(404).json({ error: 'Resource not found' })
     return
   }
 
   if (String(current.status || '').startsWith('processing')) {
-    res.status(409).json({ error: '该资源正在处理中，请稍后重试。' })
+    res.status(409).json({ error: 'This resource is still processing. Please retry later.' })
     return
   }
 
   const rawRequestedMode = (req.body || {}).interpretationMode
+  let targetLanguage: 'zh-CN' | 'en-US'
+  try {
+    targetLanguage = parseRequiredAppLanguage((req.body || {}).contentLanguage)
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message || 'Invalid contentLanguage' })
+    return
+  }
   const requestedMode =
     rawRequestedMode === 'concise' || rawRequestedMode === 'detailed' || rawRequestedMode === 'none'
       ? normalizeInterpretationMode(rawRequestedMode)
@@ -46,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     | 'file'
   const transcript = String(current.transcript || '').trim()
 
-  const reset = await updateVideo(id, {
+  const reset = await updateVideoForUser(userId, id, {
     status: 'queued',
     summary: null,
     chapters: null,
@@ -60,6 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (sourceType === 'bilibili' || sourceType === 'youtube') {
     runVideoImportInBackground({
+      userId,
       dbVideoId: id,
       sourceType,
       videoId: bvid,
@@ -67,25 +80,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       service: sourceType === 'bilibili' ? VideoService.Bilibili : VideoService.YouTube,
       pageNumber,
       interpretationMode,
+      contentLanguage: targetLanguage,
     })
   } else {
     if (!transcript) {
-      await updateVideo(id, {
+      await updateVideoForUser(userId, id, {
         status: 'error',
-        summary: '重新导入失败：原文内容为空。',
-        last_error: '原文内容为空。',
+        summary: 'Reimport failed: source text is empty.',
+        last_error: 'Source text is empty.',
       })
-      res.status(422).json({ error: '重新导入失败：原文内容为空。' })
+      res.status(422).json({ error: 'Reimport failed: source text is empty.' })
       return
     }
     runVideoImportInBackground({
+      userId,
       dbVideoId: id,
       sourceType,
-      rawTitle: String(current.title || '导入内容'),
+      rawTitle: String(current.title || 'Imported content'),
       rawText: transcript,
       sourceMime: String(current.source_mime || ''),
       generationProfile: interpretationMode === 'none' ? 'import_only' : 'full_interpretation',
       interpretationMode,
+      contentLanguage: targetLanguage,
     })
   }
 

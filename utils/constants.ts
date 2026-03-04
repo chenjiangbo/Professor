@@ -1,4 +1,4 @@
-export const BASE_DOMAIN = 'https://b.jimmylv.cn'
+export const BASE_DOMAIN = 'https://github.com/chenjiangbo/Professor'
 export const CHECKOUT_URL = 'https://jimmylv.lemonsqueezy.com/checkout/buy/e0c93804-abcc-47f7-848c-8756bec0e2fb'
 export const LOGIN_LIMIT_COUNT = 5
 export const FREE_LIMIT_COUNT = 5

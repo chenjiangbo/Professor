@@ -15,7 +15,7 @@
     @apply min-h-screen bg-surface text-text-main antialiased;
   }
 
-  /* 支持 html 或任意祖先挂载 .dark（next-themes 默认加在 html） */
+  /* Supports .dark on html or any ancestor (next-themes defaults to html). */
   .dark {
     color-scheme: dark;
   }

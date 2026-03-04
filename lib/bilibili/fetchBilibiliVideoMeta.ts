@@ -6,10 +6,10 @@ export type BilibiliVideoMeta = {
   description?: string
 }
 
-export async function fetchBilibiliVideoMeta(videoId: string): Promise<BilibiliVideoMeta> {
+export async function fetchBilibiliVideoMeta(userId: string, videoId: string): Promise<BilibiliVideoMeta> {
   let cookie = ''
   try {
-    cookie = (await getDecryptedBBDownCookie()) || ''
+    cookie = (await getDecryptedBBDownCookie(userId)) || ''
   } catch {
     cookie = ''
   }

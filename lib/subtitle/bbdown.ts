@@ -11,7 +11,7 @@ export type BBDownSubtitle = {
   filePath: string
 }
 
-const CHI_HINTS = ['zh', 'chi', 'cn', 'hans', '中文', '简体']
+const CHI_HINTS = ['zh', 'chi', 'cn', 'hans', 'zh-cn', 'zh-hans']
 const EN_HINTS = ['en', 'eng', 'english']
 const AI_HINTS = ['ai', 'auto']
 
@@ -46,14 +46,16 @@ function parseSrtToPlainText(srt: string): string {
   return normalizeSubtitleText(textLines.join('\n'))
 }
 
-function scoreSubtitleCandidate(fileName: string): number {
+function scoreSubtitleCandidate(fileName: string, preferredLanguage: 'zh-CN' | 'en-US'): number {
   const lang = detectLang(fileName)
   const isAi = detectAi(fileName)
-  if (lang === 'zh' && !isAi) return 100
-  if (lang === 'zh' && isAi) return 80
-  if (lang === 'en' && !isAi) return 60
-  if (lang === 'en' && isAi) return 40
-  return 10
+  const preferred = preferredLanguage === 'zh-CN' ? 'zh' : 'en'
+  const preferredBoost = lang === preferred ? 25 : 0
+  if (lang === 'zh' && !isAi) return 100 + preferredBoost
+  if (lang === 'zh' && isAi) return 80 + preferredBoost
+  if (lang === 'en' && !isAi) return 60 + preferredBoost
+  if (lang === 'en' && isAi) return 40 + preferredBoost
+  return 10 + preferredBoost
 }
 
 async function listSubtitleFiles(dir: string): Promise<string[]> {
@@ -73,13 +75,13 @@ async function listSubtitleFiles(dir: string): Promise<string[]> {
   return files
 }
 
-async function runBBDown(url: string, pageNumber?: string): Promise<string> {
+async function runBBDown(userId: string, url: string, pageNumber?: string): Promise<string> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bbdown-sub-'))
   const bbdownBin = process.env.BBDOWN_BIN || 'BBDown'
 
   const args = ['--sub-only', '--skip-ai', 'false']
   try {
-    const cookie = await getDecryptedBBDownCookie()
+    const cookie = await getDecryptedBBDownCookie(userId)
     if (cookie) {
       args.push('-c', cookie)
     }
@@ -118,13 +120,22 @@ async function runBBDown(url: string, pageNumber?: string): Promise<string> {
   return tempDir
 }
 
-export async function fetchSubtitleByBBDown(url: string, pageNumber?: string): Promise<BBDownSubtitle | null> {
-  const tempDir = await runBBDown(url, pageNumber)
+export async function fetchSubtitleByBBDown(
+  userId: string,
+  url: string,
+  pageNumber?: string,
+  preferredLanguage: 'zh-CN' | 'en-US' = 'en-US',
+): Promise<BBDownSubtitle | null> {
+  const tempDir = await runBBDown(userId, url, pageNumber)
   const subtitleFiles = await listSubtitleFiles(tempDir)
   if (!subtitleFiles.length) return null
 
   const scored = subtitleFiles
-    .map((f) => ({ filePath: f, fileName: path.basename(f), score: scoreSubtitleCandidate(path.basename(f)) }))
+    .map((f) => ({
+      filePath: f,
+      fileName: path.basename(f),
+      score: scoreSubtitleCandidate(path.basename(f), preferredLanguage),
+    }))
     .sort((a, b) => b.score - a.score)
 
   const best = scored[0]

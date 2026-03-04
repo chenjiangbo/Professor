@@ -1,20 +1,24 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { deleteVideo, getVideo } from '~/lib/repo'
+import { requireUserId } from '~/lib/requestAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: '缺少参数 id' })
+    res.status(400).json({ error: 'Missing required parameter: id' })
     return
   }
 
   if (req.method === 'DELETE') {
-    const exists = await getVideo(id)
+    const exists = await getVideo(userId, id)
     if (!exists) {
-      res.status(404).json({ error: '资源不存在' })
+      res.status(404).json({ error: 'Resource not found' })
       return
     }
-    await deleteVideo(id)
+    await deleteVideo(userId, id)
     res.status(204).end()
     return
   }

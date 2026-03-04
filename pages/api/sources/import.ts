@@ -10,6 +10,9 @@ import {
   type InterpretationMode,
 } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
+import { isOwnershipError } from '~/lib/repo-errors'
+import { requireUserId } from '~/lib/requestAuth'
+import { parseRequiredAppLanguage } from '~/lib/i18n'
 
 type ImportItem =
   | { type: 'text'; title?: string; text: string }
@@ -35,27 +38,30 @@ function modeToGenerationProfile(mode: InterpretationMode): 'full_interpretation
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST')
     res.status(405).end()
     return
   }
 
-  const { notebookId, items, interpretationMode } = req.body || {}
+  const { notebookId, items, interpretationMode, contentLanguage } = req.body || {}
   if (!notebookId || !Array.isArray(items)) {
-    res.status(400).json({ error: '缺少必要参数：notebookId 和 items' })
+    res.status(400).json({ error: 'Missing required parameters: notebookId and items' })
     return
   }
   if (typeof notebookId !== 'string' || !isUuid(notebookId)) {
-    res.status(400).json({ error: 'notebookId 格式不合法（必须是 UUID）' })
+    res.status(400).json({ error: 'Invalid notebookId format (must be UUID)' })
     return
   }
   if (items.length < 1) {
-    res.status(400).json({ error: 'items 不能为空' })
+    res.status(400).json({ error: 'items cannot be empty' })
     return
   }
   if (items.length > MAX_ITEMS) {
-    res.status(422).json({ error: `导入条目过多（${items.length}），最大允许 ${MAX_ITEMS}` })
+    res.status(422).json({ error: `Too many import items (${items.length}). Max allowed: ${MAX_ITEMS}` })
     return
   }
   if (
@@ -64,16 +70,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     interpretationMode !== 'detailed' &&
     interpretationMode !== 'none'
   ) {
-    res.status(400).json({ error: 'interpretationMode 只能是 "concise"、"detailed" 或 "none"' })
+    res.status(400).json({ error: 'interpretationMode must be "concise", "detailed", or "none"' })
+    return
+  }
+  let targetLanguage: 'zh-CN' | 'en-US'
+  try {
+    targetLanguage = parseRequiredAppLanguage(contentLanguage)
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message || 'Invalid contentLanguage' })
     return
   }
 
   const defaultMode = normalizeInterpretationMode(
-    (await getAppSetting(DEFAULT_INTERPRETATION_MODE_SETTING_KEY)) || DEFAULT_INTERPRETATION_MODE,
+    (await getAppSetting(userId, DEFAULT_INTERPRETATION_MODE_SETTING_KEY)) || DEFAULT_INTERPRETATION_MODE,
   )
   const selectedMode: InterpretationMode = normalizeInterpretationMode(interpretationMode || defaultMode)
 
-  const batch = await createImportBatch(notebookId, items.length)
+  let batch
+  try {
+    batch = await createImportBatch(userId, notebookId, items.length)
+  } catch (error) {
+    if (isOwnershipError(error)) {
+      res.status(404).json({ error: (error as Error).message })
+      return
+    }
+    throw error
+  }
   const createdItems: any[] = []
   const errors: Array<{ index: number; reason: string }> = []
 
@@ -83,11 +105,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (item.type === 'text') {
         const rawText = String(item.text || '').trim()
         if (!rawText) {
-          errors.push({ index: i, reason: '文本内容为空' })
+          errors.push({ index: i, reason: 'Text content is empty' })
           continue
         }
         const title = String(item.title || '').trim() || `Text ${i + 1}`
-        const created = await createVideo({
+        const created = await createVideo(userId, {
           notebookId,
           batchId: batch.id,
           platform: VideoService.Text,
@@ -102,6 +124,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         })
         createdItems.push(created)
         runVideoImportInBackground({
+          userId,
           dbVideoId: created.id,
           sourceType: 'text',
           rawTitle: title,
@@ -109,6 +132,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sourceMime: 'text/plain',
           generationProfile: modeToGenerationProfile(selectedMode),
           interpretationMode: selectedMode,
+          contentLanguage: targetLanguage,
         })
         continue
       }
@@ -119,7 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           mimeType: item.mimeType,
           contentBase64: item.contentBase64,
         })
-        const created = await createVideo({
+        const created = await createVideo(userId, {
           notebookId,
           batchId: batch.id,
           platform: VideoService.File,
@@ -134,6 +158,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         })
         createdItems.push(created)
         runVideoImportInBackground({
+          userId,
           dbVideoId: created.id,
           sourceType: 'file',
           rawTitle: extracted.title || item.name || `File ${i + 1}`,
@@ -141,18 +166,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sourceMime: extracted.sourceMime || item.mimeType || 'application/octet-stream',
           generationProfile: modeToGenerationProfile(selectedMode),
           interpretationMode: selectedMode,
+          contentLanguage: targetLanguage,
         })
         continue
       }
 
-      errors.push({ index: i, reason: `不支持的导入类型：${(item as any)?.type || 'unknown'}` })
+      errors.push({ index: i, reason: `Unsupported import type: ${(item as any)?.type || 'unknown'}` })
     } catch (e: any) {
-      errors.push({ index: i, reason: e?.message || '该条目导入失败' })
+      errors.push({ index: i, reason: e?.message || 'This item failed to import' })
     }
   }
 
   if (!createdItems.length) {
-    res.status(422).json({ error: '未找到可导入内容', errors })
+    res.status(422).json({ error: 'No importable content found', errors })
     return
   }
 
@@ -160,6 +186,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     batchId: batch.id,
     total: createdItems.length,
     interpretationMode: selectedMode,
+    contentLanguage: targetLanguage,
     errors,
     items: createdItems,
   })

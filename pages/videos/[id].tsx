@@ -4,6 +4,8 @@ import { useRouter } from 'next/router'
 import useSWR from 'swr'
 import { useMemo, useState } from 'react'
 import { ModeToggle } from '~/components/mode-toggle'
+import LanguageSwitcher from '~/components/LanguageSwitcher'
+import { useAppLanguage } from '~/hooks/useAppLanguage'
 
 type Video = {
   id: string
@@ -32,18 +34,23 @@ function parseTimeToSeconds(time?: string) {
 }
 
 const VideoDetail: NextPage = () => {
+  const { language, setLanguage } = useAppLanguage()
   const router = useRouter()
   const { id } = router.query
   const videoId = typeof id === 'string' ? id : ''
-  const { data: video } = useSWR<Video>(videoId ? `/api/videos?id=${videoId}` : null, fetcher, {
-    refreshInterval: 4000,
-  })
+  const { data: video } = useSWR<Video>(
+    videoId ? `/api/videos?id=${videoId}&lang=${encodeURIComponent(language)}` : null,
+    fetcher,
+    {
+      refreshInterval: 4000,
+    },
+  )
   const { data: notebook } = useSWR<Notebook>(
     video?.notebook_id ? `/api/notebooks/${video.notebook_id}` : null,
     fetcher,
   )
   const { data: videoList = [] } = useSWR<Video[]>(
-    video?.notebook_id ? `/api/notebooks/${video.notebook_id}/videos` : null,
+    video?.notebook_id ? `/api/notebooks/${video.notebook_id}/videos?lang=${encodeURIComponent(language)}` : null,
     fetcher,
     { refreshInterval: 4000 },
   )
@@ -77,9 +84,9 @@ const VideoDetail: NextPage = () => {
     if (!videoId) return
     setDownloading(true)
     try {
-      const res = await fetch(`/api/videos/subtitle?id=${videoId}`)
+      const res = await fetch(`/api/videos/subtitle?id=${videoId}&lang=${encodeURIComponent(language)}`)
       if (!res.ok) {
-        alert('没有可导出的原文内容。')
+        alert('No exportable source text is available.')
         setDownloading(false)
         return
       }
@@ -93,7 +100,7 @@ const VideoDetail: NextPage = () => {
       a.remove()
       URL.revokeObjectURL(url)
     } catch (e) {
-      alert('下载失败。')
+      alert('Download failed.')
     } finally {
       setDownloading(false)
     }
@@ -102,11 +109,16 @@ const VideoDetail: NextPage = () => {
   const handleAsk = async () => {
     if (!question || !videoId) return
     setAsking(true)
-    setAnswer('生成中...')
+    setAnswer('Generating...')
     const res = await fetch('/api/qa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoIds: [videoId], question, notebookId: video?.notebook_id }),
+      body: JSON.stringify({
+        videoIds: [videoId],
+        question,
+        notebookId: video?.notebook_id,
+        contentLanguage: language,
+      }),
     })
     const json = await res.json()
     setAnswer(json.answer || '')
@@ -161,6 +173,7 @@ const VideoDetail: NextPage = () => {
               Settings
             </a>
             <div className="flex items-center gap-3">
+              <LanguageSwitcher language={language} onChange={setLanguage} />
               <ModeToggle />
               <div
                 className="size-8 rounded-full border border-border-strong bg-cover bg-center dark:border-white/10"
@@ -267,7 +280,7 @@ const VideoDetail: NextPage = () => {
               </h1>
               <p className="mt-2 text-sm text-text-muted dark:text-white/60">
                 {video?.status === 'processing' ? 'Transcripts/summary are being generated, please wait...' : ''}
-                {video?.status === 'error' ? '导入失败，请重试。' : ''}
+                {video?.status === 'error' ? 'Import failed, please retry.' : ''}
               </p>
             </section>
 
@@ -284,7 +297,9 @@ const VideoDetail: NextPage = () => {
                     </p>
                   ))
                 ) : (
-                  <p className="text-text-muted dark:text-white/60">正在等待总结生成，视频仍在处理中。</p>
+                  <p className="text-text-muted dark:text-white/60">
+                    Waiting for summary generation; this video is still processing.
+                  </p>
                 )}
               </div>
             </section>
@@ -293,7 +308,9 @@ const VideoDetail: NextPage = () => {
               <h2 className="mb-4 text-lg font-semibold text-text-main dark:text-white">Chapter Outline</h2>
               <div className="flex flex-col gap-2">
                 {currentChapter.length === 0 ? (
-                  <p className="text-sm text-text-muted dark:text-white/60">暂未生成章节信息。</p>
+                  <p className="text-sm text-text-muted dark:text-white/60">
+                    Chapter information has not been generated yet.
+                  </p>
                 ) : (
                   currentChapter.map((item, idx) => (
                     <div

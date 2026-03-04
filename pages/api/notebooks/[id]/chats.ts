@@ -1,16 +1,31 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { pool } from '~/lib/db'
+import { getNotebook } from '~/lib/repo'
+import { requireUserId } from '~/lib/requestAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   const { id } = req.query // notebookId
 
   if (req.method === 'GET') {
     if (!id) {
-      res.status(400).json({ error: '缺少 Notebook ID' })
+      res.status(400).json({ error: 'Missing Notebook ID' })
       return
     }
 
     try {
+      if (typeof id !== 'string') {
+        res.status(400).json({ error: 'Invalid Notebook ID' })
+        return
+      }
+      const notebook = await getNotebook(userId, id)
+      if (!notebook) {
+        res.status(404).json({ error: 'Notebook not found' })
+        return
+      }
+
       const rawVideoId = Array.isArray(req.query.videoId) ? req.query.videoId[0] : req.query.videoId
       const videoId = typeof rawVideoId === 'string' && rawVideoId.trim() ? rawVideoId.trim() : ''
       const result = videoId

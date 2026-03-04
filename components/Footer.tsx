@@ -30,7 +30,7 @@ export default function Footer() {
         <Link href="/privacy" className="group" aria-label="Privacy Statement">
           Privacy Statement
         </Link>
-        <Link href="https://twitter.com/Jimmy_JingLv" className="group" aria-label="JimmyLv on Twitter">
+        <Link href="https://github.com/chenjiangbo/Professor" className="group" aria-label="Professor on GitHub">
           <div
             className={buttonVariants({
               size: 'sm',
@@ -38,11 +38,11 @@ export default function Footer() {
               className: 'text-slate-700 dark:text-slate-400',
             })}
           >
-            <Icons.twitter className="h-5 w-5 fill-current" />
-            <span className="sr-only">Twitter</span>
+            <Icons.gitHub className="h-5 w-5" />
+            <span className="sr-only">GitHub</span>
           </div>
         </Link>
-        <Link href="https://github.com/JimmyLv" className="group" aria-label="JimmyLv on GitHub">
+        <Link href="https://github.com/chenjiangbo/Professor" className="group" aria-label="Professor on GitHub">
           <div
             className={buttonVariants({
               size: 'sm',

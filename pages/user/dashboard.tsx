@@ -70,7 +70,7 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Vertex Cost Dashboard</h1>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                基于 Cloud Monitoring token 指标的估算费用（非最终账单）
+                Estimated cost based on Cloud Monitoring token metrics (not the final bill)
               </p>
             </div>
             <div className="flex items-center gap-2">

@@ -26,7 +26,7 @@ function filterHalfRandomly<T>(arr: T[]): T[] {
   const halfLength = Math.floor(arr.length / 2)
   const indicesToFilter = new Set<number>()
 
-  // 随机生成要过滤掉的元素的下标
+  // Randomly generate indices to filter out.
   while (indicesToFilter.size < halfLength) {
     const index = Math.floor(Math.random() * arr.length)
     if (!indicesToFilter.has(index)) {
@@ -34,7 +34,7 @@ function filterHalfRandomly<T>(arr: T[]): T[] {
     }
   }
 
-  // 过滤掉要过滤的元素
+  // Keep only indices that are not filtered.
   for (let i = 0; i < arr.length; i++) {
     if (!indicesToFilter.has(i)) {
       filteredArr.push(arr[i])

@@ -68,7 +68,7 @@ export default function LabsAIChat() {
             <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-400">
               Status: {isStreaming ? 'Streaming' : 'Idle'}
             </span>
-            {error && <span className="text-xs text-red-400">错误：{String(error)}</span>}
+            {error && <span className="text-xs text-red-400">Error: {String(error)}</span>}
           </div>
         </header>
 

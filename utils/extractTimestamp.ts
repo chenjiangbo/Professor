@@ -14,7 +14,7 @@ export function extractTimestamp(matchResult: RegExpMatchArray) {
   const content = matchResult[2]
   let formattedContent = content
   try {
-    formattedContent = content && /^[:：秒]/.test(content) ? content.substring(1) : content
+    formattedContent = content && /^[: ]/.test(content) ? content.substring(1) : content
     formattedContent = formattedContent && !/^ /.test(formattedContent) ? ' ' + formattedContent : formattedContent
   } catch (e) {
     console.error('handle text after time error', e)

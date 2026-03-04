@@ -1,21 +1,28 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { createVideo, getVideo, updateVideo } from '~/lib/repo'
+import { createVideo, getVideo, updateVideoForUser } from '~/lib/repo'
 import { extractPageNumberFromUrl, isBilibiliUrl, normalizeBilibiliVideoId } from '~/lib/bilibili/preview'
 import { isYouTubeUrl, normalizeYouTubeVideoId } from '~/lib/youtube/preview'
 import { runVideoImportInBackground } from '~/lib/import/processVideoImport'
 import { normalizeInterpretationMode } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
+import { isOwnershipError } from '~/lib/repo-errors'
+import { requireUserId } from '~/lib/requestAuth'
+import { normalizeAppLanguage, parseRequiredAppLanguage } from '~/lib/i18n'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method === 'GET') {
-    const { id } = req.query
+    const { id, lang } = req.query
     if (!id || typeof id !== 'string') {
-      res.status(400).json({ error: '缺少参数 id' })
+      res.status(400).json({ error: 'Missing required parameter: id' })
       return
     }
-    const video = await getVideo(id)
+    const language = typeof lang === 'string' ? normalizeAppLanguage(lang) : undefined
+    const video = await getVideo(userId, id, language)
     if (!video) {
-      res.status(404).json({ error: '资源不存在' })
+      res.status(404).json({ error: 'Resource not found' })
       return
     }
     res.status(200).json(video)
@@ -32,16 +39,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sentenceNumber = 5,
       outputLanguage,
       interpretationMode,
+      contentLanguage,
     } = req.body || {}
     if (!url || !notebookId) {
-      res.status(400).json({ error: '缺少必要参数：url 和 notebookId' })
+      res.status(400).json({ error: 'Missing required parameters: url and notebookId' })
       return
     }
 
     const isBili = isBilibiliUrl(url)
     const isYT = isYouTubeUrl(url)
     if (!isBili && !isYT) {
-      res.status(400).json({ error: '当前仅支持 B 站或 YouTube URL' })
+      res.status(400).json({ error: 'Only Bilibili or YouTube URLs are supported' })
+      return
+    }
+    let targetLanguage: 'zh-CN' | 'en-US'
+    try {
+      targetLanguage = parseRequiredAppLanguage(contentLanguage)
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || 'Invalid contentLanguage' })
       return
     }
 
@@ -50,19 +65,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const videoId = isBili ? normalizeBilibiliVideoId(url) : normalizeYouTubeVideoId(url)
     const pageNumber = isBili ? extractPageNumberFromUrl(url) : undefined
 
-    const created = await createVideo({
-      notebookId,
-      platform: service,
-      sourceType,
-      generationProfile: 'full_interpretation',
-      externalId: videoId,
-      sourceUrl: url,
-      title: '导入中...',
-      status: 'queued',
-      interpretationMode: normalizeInterpretationMode(interpretationMode),
-    })
+    let created
+    try {
+      created = await createVideo(userId, {
+        notebookId,
+        platform: service,
+        sourceType,
+        generationProfile: 'full_interpretation',
+        externalId: videoId,
+        sourceUrl: url,
+        title: 'Importing...',
+        status: 'queued',
+        interpretationMode: normalizeInterpretationMode(interpretationMode),
+      })
+    } catch (error) {
+      if (isOwnershipError(error)) {
+        res.status(404).json({ error: (error as Error).message })
+        return
+      }
+      throw error
+    }
 
     runVideoImportInBackground({
+      userId,
       dbVideoId: created.id,
       sourceType,
       videoId,
@@ -75,6 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sentenceNumber,
       outputLanguage,
       interpretationMode: normalizeInterpretationMode(interpretationMode),
+      contentLanguage: targetLanguage,
     })
 
     res.status(201).json(created)
@@ -84,12 +110,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'PATCH') {
     const { id, summary, status, title, chapters } = req.body || {}
     if (!id) {
-      res.status(400).json({ error: '缺少参数 id' })
+      res.status(400).json({ error: 'Missing required parameter: id' })
       return
     }
-    const updated = await updateVideo(id, { summary, status, title, chapters })
+    const updated = await updateVideoForUser(userId, id, { summary, status, title, chapters })
     if (!updated) {
-      res.status(404).json({ error: '资源不存在' })
+      res.status(404).json({ error: 'Resource not found' })
       return
     }
     res.status(200).json(updated)

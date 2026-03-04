@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 ENV NODE_ENV development
 ENV PORT 3000
 
-# build prerequisites for native deps (e.g., bufferutil) + npm 网络重试/镜像
+# Build prerequisites for native dependencies (e.g., bufferutil) + npm retry/mirror setup
 RUN apk add --no-cache python3 make g++ \
     && apk add --no-cache curl unzip ffmpeg yt-dlp \
     && apk add --no-cache gcompat \

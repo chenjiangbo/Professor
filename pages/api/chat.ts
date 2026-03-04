@@ -2,8 +2,10 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { streamText, convertToModelMessages, pipeUIMessageStreamToResponse, type UIMessage } from 'ai'
 import { randomUUID } from 'crypto'
 import { pool } from '~/lib/db'
-import { getVideo, listVideos } from '~/lib/repo'
+import { getNotebook, getVideo, listVideos } from '~/lib/repo'
 import { createVertexProvider, resolveVertexModel } from '~/lib/ai/vertex'
+import { requireUserId } from '~/lib/requestAuth'
+import { isChineseLanguage, parseRequiredAppLanguage } from '~/lib/i18n'
 
 function buildVideoContext(video: any): string {
   const title = String(video?.title || '').trim()
@@ -28,24 +30,44 @@ function buildVideoContext(video: any): string {
     .join('\n\n')
 }
 
-function buildPromptPrefix(context: string) {
+function buildPromptPrefix(context: string, language: 'zh-CN' | 'en-US') {
+  if (isChineseLanguage(language)) {
+    return `
+你是一位知识扎实且善于启发的学习教练。
+
+[当前学习资料]
+${context || '(未选择资料，上下文为空。)'}
+
+[回答原则]
+1. 优先基于给定资料作答。
+2. 当问题超出资料时，可结合通用知识补充。
+3. 必要时自然说明信息来源。
+4. 避免机械化表达，适当使用类比。
+5. 涉及时效数据或政策时，给出依据并避免武断。
+
+[输出要求]
+- 使用清晰 Markdown。
+- 必须使用中文回答。
+- 仅输出最终答案，不输出推理草稿。
+`.trim()
+  }
   return `
-你是一位深受学生喜爱的、博学且极具启发性的深度学习导师。
+You are a knowledgeable and inspiring learning coach.
 
-【当前学习资料】：
-${context || '(当前未选择资料，上下文为空)'}
+[Current Learning Materials]
+${context || '(No material selected; context is empty.)'}
 
-【你的辅导哲学】：
-1. 融会贯通：解答用户疑问时，请先从【当前学习资料】中提取核心观点作为解答基石。
-2. 无界知识：如果用户提问超出资料范围（例如追问底层原理、实操方法或最新案例），不要回答“资料未提及”。请直接调动你的知识储备补充解答。
-3. 透明交流：在自然流畅的对话中，让用户感知知识来源。例如：“视频中提到了...，另外结合目前研究...”
-4. 拒绝机械：像真正聪明的人类导师一样交流。可使用恰当比喻解释复杂概念。
-5. 事实求证：当涉及具体数据、文献、政策或时效性事件时，请明确说明结论依据，避免武断表达。
+[Guidance Principles]
+1. Start from the provided learning materials whenever they are relevant.
+2. If the question goes beyond the materials, use your general knowledge to fill in the gaps instead of refusing.
+3. Be transparent about source grounding in natural language when useful (for example: "In the video..., and based on current research...").
+4. Avoid robotic phrasing. Explain complex ideas with clear analogies when helpful.
+5. For concrete data, policies, papers, or time-sensitive events, state your basis and avoid overconfident claims.
 
-【输出要求】：
-- 回答使用清晰的 Markdown。
-- 直接输出最终答案，不要输出你的内部思考、草稿、评估过程、查核清单或“我将如何回答”的计划。
-- 不要输出类似“测评：”“结构化草稿：”“Let's refine...”“Response draft...”这类中间过程文本。
+[Output Requirements]
+- Respond in clear Markdown.
+- Output only the final answer.
+- Do not output hidden reasoning, scratch notes, checklists, or drafting text such as "Response draft" or "Let's refine...".
 `.trim()
 }
 
@@ -84,8 +106,11 @@ function normalizeIncomingMessages(messages: UIMessage[]) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'POST') {
-    res.status(405).json({ error: '不支持该请求方法' })
+    res.status(405).json({ error: 'Method not allowed' })
     return
   }
 
@@ -94,6 +119,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       messages: UIMessage[]
       notebookId?: string
       videoIds?: string[]
+    }
+    let contentLanguage: 'zh-CN' | 'en-US'
+    try {
+      contentLanguage = parseRequiredAppLanguage((req.body as any)?.contentLanguage)
+    } catch (e: any) {
+      res.status(400).json({ error: e?.message || 'Invalid contentLanguage' })
+      return
     }
 
     const model = normalizeModelName((req.body as any)?.model)
@@ -117,13 +149,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let videos: any[] = []
     if (Array.isArray(videoIds) && videoIds.length > 0) {
-      videos = (await Promise.all(videoIds.map((id: string) => getVideo(id)))).filter(Boolean) as any[]
+      videos = (await Promise.all(videoIds.map((id: string) => getVideo(userId, id, contentLanguage)))).filter(
+        Boolean,
+      ) as any[]
     } else {
-      videos = await listVideos(notebookId)
+      const notebook = await getNotebook(userId, notebookId)
+      if (!notebook) {
+        res.status(404).json({ error: 'Notebook not found' })
+        return
+      }
+      videos = await listVideos(userId, notebookId, contentLanguage)
     }
 
     const context = videos.map((v: any) => buildVideoContext(v)).join('\n\n---\n\n')
-    const promptPrefix = buildPromptPrefix(context)
+    const promptPrefix = buildPromptPrefix(context, contentLanguage)
 
     const lastMessage = safeMessages[safeMessages.length - 1]
     if (lastMessage && lastMessage.role === 'user') {
@@ -170,7 +209,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error('[Chat API] Error:', error)
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || '聊天服务内部错误' })
+      res.status(500).json({ error: error.message || 'Chat service internal error' })
     }
   }
 }

@@ -2,8 +2,11 @@ import Head from 'next/head'
 import { NextPage } from 'next'
 import { useEffect, useState } from 'react'
 import { ModeToggle } from '~/components/mode-toggle'
+import LanguageSwitcher from '~/components/LanguageSwitcher'
+import { useAppLanguage } from '~/hooks/useAppLanguage'
 
 const SettingsPage: NextPage = () => {
+  const { language, setLanguage } = useAppLanguage()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingInterpretationMode, setSavingInterpretationMode] = useState(false)
@@ -74,9 +77,9 @@ const SettingsPage: NextPage = () => {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      setMessage('默认解读模式已保存。')
+      setMessage('Default interpretation mode saved.')
     } catch (e: any) {
-      setMessage(e?.message || '保存默认解读模式失败')
+      setMessage(e?.message || 'Failed to save default interpretation mode')
     } finally {
       setSavingInterpretationMode(false)
     }
@@ -84,7 +87,7 @@ const SettingsPage: NextPage = () => {
 
   const saveAuth = async () => {
     if (!value.trim()) {
-      setMessage('请先粘贴 SESSDATA 或完整 Cookie。')
+      setMessage('Please paste SESSDATA or a full Cookie string first.')
       return
     }
     setSaving(true)
@@ -98,17 +101,17 @@ const SettingsPage: NextPage = () => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
       const base = json?.validation?.valid
-        ? '保存成功，凭据校验通过。'
-        : `已保存，但校验失败：${json?.validation?.message || '未知错误'}`
+        ? 'Saved successfully. Credential validation passed.'
+        : `Saved, but validation failed: ${json?.validation?.message || 'Unknown error'}`
       const weakHint =
         json?.cookieStrength?.level === 'basic'
-          ? ' 当前 Cookie 强度偏弱，建议使用完整 Cookie 以提升字幕下载稳定性。'
+          ? ' Cookie strength is weak. Use a full Cookie string for more reliable subtitle downloads.'
           : ''
       setMessage(base + weakHint)
       setValue('')
       await loadAuthState()
     } catch (e: any) {
-      setMessage(e?.message || '保存登录凭据失败')
+      setMessage(e?.message || 'Failed to save credential')
     } finally {
       setSaving(false)
     }
@@ -121,15 +124,17 @@ const SettingsPage: NextPage = () => {
       const res = await fetch('/api/settings/bbdown-auth/validate', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
-      const base = json?.validation?.valid ? '凭据有效。' : `凭据无效：${json?.validation?.message || ''}`
+      const base = json?.validation?.valid
+        ? 'Credential is valid.'
+        : `Credential is invalid: ${json?.validation?.message || ''}`
       const weakHint =
         json?.cookieStrength?.level === 'basic'
-          ? ' 当前 Cookie 强度偏弱，建议使用完整 Cookie 以提升字幕下载稳定性。'
+          ? ' Cookie strength is weak. Use a full Cookie string for more reliable subtitle downloads.'
           : ''
       setMessage(base + weakHint)
       await loadAuthState()
     } catch (e: any) {
-      setMessage(e?.message || '凭据校验失败')
+      setMessage(e?.message || 'Credential validation failed')
     } finally {
       setValidating(false)
     }
@@ -140,12 +145,12 @@ const SettingsPage: NextPage = () => {
     await fetch('/api/settings/bbdown-auth', { method: 'DELETE' })
     await loadAuthState()
     setValue('')
-    setMessage('登录凭据已清除。')
+    setMessage('Credential cleared.')
   }
 
   const saveYouTubeAuth = async () => {
     if (!ytValue.trim()) {
-      setYtMessage('请先粘贴 YouTube Cookie 或 cookies.txt 内容。')
+      setYtMessage('Please paste a YouTube Cookie or cookies.txt content first.')
       return
     }
     setYtSaving(true)
@@ -159,13 +164,13 @@ const SettingsPage: NextPage = () => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
       const base = json?.validation?.valid
-        ? 'YouTube 凭据保存成功，格式校验通过。'
-        : `YouTube 凭据已保存，但校验失败：${json?.validation?.message || '未知错误'}`
+        ? 'YouTube credential saved successfully, format validation passed.'
+        : `YouTube credential saved, but validation failed: ${json?.validation?.message || 'Unknown error'}`
       setYtMessage(base)
       setYtValue('')
       await loadYouTubeAuthState()
     } catch (e: any) {
-      setYtMessage(e?.message || '保存 YouTube 凭据失败')
+      setYtMessage(e?.message || 'Failed to save YouTube credential')
     } finally {
       setYtSaving(false)
     }
@@ -179,12 +184,12 @@ const SettingsPage: NextPage = () => {
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || res.statusText)
       const base = json?.validation?.valid
-        ? 'YouTube 凭据有效。'
-        : `YouTube 凭据无效：${json?.validation?.message || ''}`
+        ? 'YouTube Credential is valid.'
+        : `YouTube Credential is invalid: ${json?.validation?.message || ''}`
       setYtMessage(base)
       await loadYouTubeAuthState()
     } catch (e: any) {
-      setYtMessage(e?.message || 'YouTube 凭据校验失败')
+      setYtMessage(e?.message || 'YouTube Credential validation failed')
     } finally {
       setYtValidating(false)
     }
@@ -195,7 +200,7 @@ const SettingsPage: NextPage = () => {
     await fetch('/api/settings/youtube-auth', { method: 'DELETE' })
     await loadYouTubeAuthState()
     setYtValue('')
-    setYtMessage('YouTube 凭据已清除。')
+    setYtMessage('YouTube credential cleared.')
   }
 
   return (
@@ -242,6 +247,7 @@ const SettingsPage: NextPage = () => {
                     </a>
                   </div>
                   <div className="flex items-center gap-3">
+                    <LanguageSwitcher language={language} onChange={setLanguage} />
                     <ModeToggle />
                     <div
                       className="size-10 rounded-full bg-cover bg-center"
@@ -258,9 +264,10 @@ const SettingsPage: NextPage = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
-                  如果你要导入 B 站或 YouTube 视频，请先配置对应平台的登录凭据（推荐完整 Cookie）。
+                  If you import Bilibili or YouTube videos, configure platform credentials first (full Cookie
+                  recommended).
                   <a className="ml-2 font-semibold underline" href="#bbdown-login">
-                    跳转到配置区
+                    Jump to credential section
                   </a>
                 </div>
                 <div className="flex flex-col gap-8">
@@ -323,7 +330,7 @@ const SettingsPage: NextPage = () => {
                             disabled={savingInterpretationMode}
                             className="flex h-9 min-w-[110px] items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
                           >
-                            {savingInterpretationMode ? '保存中...' : '保存模式'}
+                            {savingInterpretationMode ? 'Saving...' : 'Save mode'}
                           </button>
                         </div>
                       </div>
@@ -401,11 +408,11 @@ const SettingsPage: NextPage = () => {
                     <div className="space-y-4">
                       <div className="rounded-md border border-border-strong bg-white/60 p-3 text-sm dark:border-white/20 dark:bg-black/20">
                         {loading ? (
-                          <p className="text-text-muted dark:text-gray-400">加载状态中...</p>
+                          <p className="text-text-muted dark:text-gray-400">Loading status...</p>
                         ) : authState?.configured ? (
                           <div className="space-y-1">
                             <p>
-                              状态：
+                              Status:
                               <span
                                 className={
                                   authState?.status === 'valid'
@@ -418,9 +425,9 @@ const SettingsPage: NextPage = () => {
                                 {authState?.status || 'unknown'}
                               </span>
                             </p>
-                            <p>模式：{authState?.mode}</p>
+                            <p>Mode: {authState?.mode}</p>
                             <p>
-                              Cookie 强度：
+                              Cookie strength:
                               <span
                                 className={
                                   authState?.cookieStrength?.level === 'strong'
@@ -434,19 +441,19 @@ const SettingsPage: NextPage = () => {
                             {authState?.cookieStrength?.message ? (
                               <p className="text-text-muted dark:text-gray-400">{authState.cookieStrength.message}</p>
                             ) : null}
-                            <p>凭据：{authState?.maskedCredential || '****'}</p>
+                            <p>Credential: {authState?.maskedCredential || '****'}</p>
                             <p>
-                              最近校验时间：
+                              Last validated at:
                               {authState?.lastValidatedAt
                                 ? new Date(authState.lastValidatedAt).toLocaleString()
-                                : '暂无'}
+                                : 'N/A'}
                             </p>
                             {authState?.lastError ? (
-                              <p className="text-red-500 dark:text-red-400">最近错误：{authState.lastError}</p>
+                              <p className="text-red-500 dark:text-red-400">Last error: {authState.lastError}</p>
                             ) : null}
                           </div>
                         ) : (
-                          <p className="text-text-muted dark:text-gray-400">尚未配置。</p>
+                          <p className="text-text-muted dark:text-gray-400">Not configured yet.</p>
                         )}
                       </div>
 
@@ -476,8 +483,8 @@ const SettingsPage: NextPage = () => {
                           className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                         />
                         <p className="mt-2 text-xs text-text-muted dark:text-gray-400">
-                          推荐直接粘贴浏览器请求头中的完整 <code>Cookie:</code> 值。仅使用 SESSDATA
-                          在部分视频（合集/分组/权限差异）下可能无法拿到字幕。
+                          We recommend pasting the full <code>Cookie:</code> header value from your browser. Using only
+                          SESSDATA may fail to fetch subtitles for some videos (collections/permission differences).
                         </p>
                       </div>
 
@@ -489,21 +496,21 @@ const SettingsPage: NextPage = () => {
                           disabled={saving}
                           className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
                         >
-                          {saving ? '保存中...' : '保存'}
+                          {saving ? 'Saving...' : 'Save'}
                         </button>
                         <button
                           onClick={validateAuth}
                           disabled={validating || loading || !authState?.configured}
                           className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-main hover:border-accent/70 disabled:opacity-50 dark:border-white/20 dark:text-white"
                         >
-                          {validating ? '校验中...' : '校验'}
+                          {validating ? 'Validating...' : 'Validate'}
                         </button>
                         <button
                           onClick={clearAuth}
                           disabled={loading || !authState?.configured}
                           className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
                         >
-                          清除
+                          Clear
                         </button>
                       </div>
                     </div>
@@ -514,17 +521,17 @@ const SettingsPage: NextPage = () => {
                         YouTube / yt-dlp Login
                       </p>
                       <p className="mt-1 text-sm text-text-muted dark:text-gray-400">
-                        保存你的 YouTube 登录凭据，用于受限视频字幕下载。
+                        Save your YouTube credential for restricted-video subtitle downloads.
                       </p>
                     </div>
                     <div className="space-y-4">
                       <div className="rounded-md border border-border-strong bg-white/60 p-3 text-sm dark:border-white/20 dark:bg-black/20">
                         {!ytAuthState ? (
-                          <p className="text-text-muted dark:text-gray-400">加载状态中...</p>
+                          <p className="text-text-muted dark:text-gray-400">Loading status...</p>
                         ) : ytAuthState?.configured ? (
                           <div className="space-y-1">
                             <p>
-                              状态：
+                              Status:
                               <span
                                 className={
                                   ytAuthState?.status === 'valid'
@@ -537,20 +544,20 @@ const SettingsPage: NextPage = () => {
                                 {ytAuthState?.status || 'unknown'}
                               </span>
                             </p>
-                            <p>模式：{ytAuthState?.mode}</p>
-                            <p>凭据：{ytAuthState?.maskedCredential || '****'}</p>
+                            <p>Mode: {ytAuthState?.mode}</p>
+                            <p>Credential: {ytAuthState?.maskedCredential || '****'}</p>
                             <p>
-                              最近校验时间：
+                              Last validated at:
                               {ytAuthState?.lastValidatedAt
                                 ? new Date(ytAuthState.lastValidatedAt).toLocaleString()
-                                : '暂无'}
+                                : 'N/A'}
                             </p>
                             {ytAuthState?.lastError ? (
-                              <p className="text-red-500 dark:text-red-400">最近错误：{ytAuthState.lastError}</p>
+                              <p className="text-red-500 dark:text-red-400">Last error: {ytAuthState.lastError}</p>
                             ) : null}
                           </div>
                         ) : (
-                          <p className="text-text-muted dark:text-gray-400">尚未配置。</p>
+                          <p className="text-text-muted dark:text-gray-400">Not configured yet.</p>
                         )}
                       </div>
 
@@ -578,13 +585,14 @@ const SettingsPage: NextPage = () => {
                           rows={6}
                           placeholder={
                             ytMode === 'cookie'
-                              ? '粘贴完整 Cookie 字符串'
-                              : '粘贴 cookies.txt 文件内容（Netscape 格式）'
+                              ? 'Paste full Cookie string'
+                              : 'Paste cookies.txt content (Netscape format)'
                           }
                           className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                         />
                         <p className="mt-2 text-xs text-text-muted dark:text-gray-400">
-                          若出现 “Sign in to confirm you’re not a bot”，请更新 YouTube 完整 Cookie 或 cookies.txt。
+                          If you see "Sign in to confirm you're not a bot", update your full YouTube Cookie or
+                          cookies.txt.
                         </p>
                       </div>
 
@@ -596,21 +604,21 @@ const SettingsPage: NextPage = () => {
                           disabled={ytSaving}
                           className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
                         >
-                          {ytSaving ? '保存中...' : '保存'}
+                          {ytSaving ? 'Saving...' : 'Save'}
                         </button>
                         <button
                           onClick={validateYouTubeAuth}
                           disabled={ytValidating || !ytAuthState?.configured}
                           className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-main hover:border-accent/70 disabled:opacity-50 dark:border-white/20 dark:text-white"
                         >
-                          {ytValidating ? '校验中...' : '校验'}
+                          {ytValidating ? 'Validating...' : 'Validate'}
                         </button>
                         <button
                           onClick={clearYouTubeAuth}
                           disabled={!ytAuthState?.configured}
                           className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
                         >
-                          清除
+                          Clear
                         </button>
                       </div>
                     </div>

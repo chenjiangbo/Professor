@@ -1,11 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getImportBatch, getImportBatchStats } from '~/lib/repo'
+import { requireUserId } from '~/lib/requestAuth'
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = requireUserId(req, res)
+  if (!userId) return
+
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET')
     res.status(405).end()
@@ -14,20 +18,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { id } = req.query
   if (!id || typeof id !== 'string') {
-    res.status(400).json({ error: '缺少参数 id' })
+    res.status(400).json({ error: 'Missing required parameter: id' })
     return
   }
   if (!isUuid(id)) {
-    res.status(400).json({ error: 'id 格式不合法（必须是 UUID）' })
+    res.status(400).json({ error: 'Invalid id format (must be UUID)' })
     return
   }
 
-  const batch = await getImportBatch(id)
+  const batch = await getImportBatch(userId, id)
   if (!batch) {
-    res.status(404).json({ error: '批次不存在' })
+    res.status(404).json({ error: 'Batch not found' })
     return
   }
 
-  const stats = await getImportBatchStats(id)
+  const stats = await getImportBatchStats(userId, id)
   res.status(200).json({ ...batch, stats })
 }

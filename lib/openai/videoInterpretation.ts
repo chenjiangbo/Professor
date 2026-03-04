@@ -1,6 +1,7 @@
 import { normalizeInterpretationMode, type InterpretationMode } from '~/lib/interpretationMode'
 import { limitTranscriptByteLength } from '~/lib/openai/getSmallSizeTranscripts'
 import { generateText } from 'ai'
+import { isChineseLanguage, type AppLanguage } from '~/lib/i18n'
 import {
   createVertexProvider,
   resolveVertexInterpretationArticleModel,
@@ -54,9 +55,14 @@ function normalizeTranscript(input: string, mode: InterpretationMode) {
   return limitTranscriptByteLength(text, byteLimit)
 }
 
-function buildSummaryFromChapters(overview: string, chapters: GeneratedChapter[]) {
+function buildSummaryFromChapters(overview: string, chapters: GeneratedChapter[], language: AppLanguage) {
   const chapterList = chapters.map((c, idx) => `- ${idx + 1}. ${c.title}`).join('\n')
-  return `## 学习总览\n${overview || '本视频已完成深度解读。'}\n\n## 章节目录\n${chapterList}`
+  if (isChineseLanguage(language)) {
+    return `## 学习总览\n${overview || '该视频已完成深度解读。'}\n\n## 章节目录\n${chapterList}`
+  }
+  return `## Learning Overview\n${
+    overview || 'Deep interpretation completed for this video.'
+  }\n\n## Chapter Index\n${chapterList}`
 }
 
 async function generateCoverageMap(
@@ -64,33 +70,47 @@ async function generateCoverageMap(
   transcript: string,
   model: any,
   mode: InterpretationMode,
+  language: AppLanguage,
 ): Promise<CoverageResult> {
   const isDetailed = mode === 'detailed'
   const coverageMaxOutputTokens = isDetailed ? 5600 : 4200
   let retryHint = ''
+  const chinese = isChineseLanguage(language)
 
-  const outputContract = ['SUMMARY:', '<一句话总结>', '', 'POINTS:', '- <信息点1>', '- <信息点2>', '- <信息点3>'].join(
-    '\n',
-  )
+  const outputContract = chinese
+    ? ['SUMMARY:', '<一句话总结>', '', 'POINTS:', '- <信息点1>', '- <信息点2>', '- <信息点3>'].join('\n')
+    : ['SUMMARY:', '<one-sentence summary>', '', 'POINTS:', '- <point 1>', '- <point 2>', '- <point 3>'].join('\n')
 
   const buildPrompt = (retryHint?: string) =>
     [
-      '你是一位知识压缩助手。任务是从原始字幕提取后续解读必须覆盖的关键信息点。忽略寒暄、重复和口头语。',
-      `视频标题：${title}`,
+      chinese
+        ? '你是一位知识压缩助手。提取后续解读必须覆盖的关键信息点，忽略寒暄、重复与口头语。'
+        : 'You are a knowledge compression assistant. Extract key information points that must be covered in the later interpretation. Ignore greetings, repetition, and filler speech.',
+      chinese ? `视频标题：${title}` : `Video title: ${title}`,
       '',
-      '请输出纯文本，且必须严格遵守格式协议（不要 JSON、不要 Markdown 标题、不要代码块）：',
+      chinese
+        ? '输出纯文本，并严格遵守以下格式（不要 JSON、不要 Markdown 标题、不要代码块）：'
+        : 'Output plain text and strictly follow this format contract (no JSON, no Markdown headings, no code fences):',
       outputContract,
       '',
-      '格式含义：',
-      '- SUMMARY 行后只写一句话核心论点。',
+      chinese ? '格式说明：' : 'Format meaning:',
+      chinese ? '- SUMMARY 后只写一句核心观点。' : '- After SUMMARY:, write only one sentence with the core thesis.',
       isDetailed
-        ? '- POINTS 下输出关键信息点（建议14-24条），每条只写一个信息点，尽量不超过60字。'
-        : '- POINTS 下输出关键信息点（建议10-18条），每条只写一个信息点，尽量不超过50字。',
-      isDetailed ? '- 当前为详解模式：优先保留数据、案例、论据与推导链中的细节点。' : '',
-      '- 不要输出任何额外说明。',
+        ? chinese
+          ? '- POINTS 下输出关键信息点（建议 14-24 条），每行一个信息点。'
+          : '- Under POINTS:, output key information points (recommended 14-24). One point per line, concise wording.'
+        : chinese
+        ? '- POINTS 下输出关键信息点（建议 10-18 条），每行一个信息点。'
+        : '- Under POINTS:, output key information points (recommended 10-18). One point per line, concise wording.',
+      isDetailed
+        ? chinese
+          ? '- 当前为详解模式：优先保留数据、案例、论据与推理链细节。'
+          : '- Detailed mode: prioritize data, cases, evidence, and reasoning-chain details.'
+        : '',
+      chinese ? '- 不要输出任何额外说明。' : '- Do not output any extra explanation.',
       retryHint || '',
       '',
-      '原始字幕：',
+      chinese ? '原始转录：' : 'Raw transcript:',
       transcript,
     ]
       .filter(Boolean)
@@ -119,8 +139,12 @@ async function generateCoverageMap(
       const isLikelyTruncated =
         finishReason === 'length' || /truncated|incomplete|empty response|could not parse/i.test(causeMessage)
       retryHint = isLikelyTruncated
-        ? '重试：上次输出疑似被截断。请显著压缩措辞，并完整输出 SUMMARY 与 POINTS。'
-        : '重试：请保持语义一致，仅修复格式，严格输出 SUMMARY 与 POINTS。'
+        ? chinese
+          ? '重试：上次输出疑似被截断。请压缩措辞并完整输出 SUMMARY 与 POINTS。'
+          : 'Retry: previous output appears truncated. Compress wording significantly and fully output SUMMARY and POINTS.'
+        : chinese
+        ? '重试：保持语义不变，仅修复格式并严格输出 SUMMARY 与 POINTS。'
+        : 'Retry: keep semantics unchanged, fix only format, and strictly output SUMMARY and POINTS.'
       if (attempt === 1) {
         throw new Error(`Coverage model call failed: ${extractModelError(e)}`)
       }
@@ -173,32 +197,56 @@ async function generateFullArticle(
   coveragePoints: string[],
   model: any,
   mode: InterpretationMode,
+  language: AppLanguage,
 ): Promise<string> {
   const isDetailed = mode === 'detailed'
+  const chinese = isChineseLanguage(language)
   const buildPrompt = (retry: boolean) =>
     [
-      '你是一位深度解读编辑。请基于字幕写一篇连贯、可读性强、逻辑清晰的中文深度解读文章。',
-      `视频标题：${title}`,
+      chinese
+        ? '你是一位深度解读编辑。请基于转录写一篇连贯、清晰、可读性强的深度文章。'
+        : 'You are a deep-interpretation editor. Write a coherent, readable, and logically clear in-depth article based on the transcript.',
+      chinese ? `视频标题：${title}` : `Video title: ${title}`,
       '',
-      '写作要求：',
-      '1) 必须覆盖关键信息点，不遗漏核心内容。',
-      '2) 忠于字幕事实，不编造字幕中不存在的信息。',
-      '3) 允许补充必要背景解释，但不得偏离主题。',
-      '4) 全文要一气呵成，段间有自然过渡，避免拼接感。',
-      '5) 文章风格：请像一位经验丰富的专栏作家一样行文。语言生动流畅，段落之间要有明确的逻辑承接（如因果、转折、递进），绝不能像机器列大纲一样生硬。',
-      '6) 富文本排版：充分利用 Markdown 提升阅读体验。使用加粗强调核心概念或金句；遇到关键语录、重要数据结论时，使用引用块（>）高亮；适当使用无序列表（-）或有序列表（1.）梳理并列论点，但不要让全文变成纯列表。',
+      chinese ? '写作要求：' : 'Writing requirements:',
+      chinese
+        ? '1) 必须覆盖关键信息点，不遗漏核心内容。'
+        : '1) Cover all key information points; do not miss core content.',
+      chinese ? '2) 忠于转录事实，不得编造细节。' : '2) Stay faithful to transcript facts; do not fabricate details.',
+      chinese
+        ? '3) 可补充必要背景解释，但不得偏离主题。'
+        : '3) You may add necessary background explanations without drifting off-topic.',
+      chinese
+        ? '4) 全文保持自然连贯，段落间有清晰过渡。'
+        : '4) Keep the article flowing naturally with smooth transitions between paragraphs.',
+      chinese
+        ? '5) 风格应像成熟专栏作者，避免机械化罗列。'
+        : '5) Style: write like an experienced columnist, not like a mechanical outline dump.',
+      chinese
+        ? '6) 使用 Markdown 增强可读性：可加粗重点、引用关键句、适度使用列表。'
+        : '6) Use Markdown for readability: bold key concepts, use blockquotes (>) for notable quotes/data, and lists where appropriate without turning the whole article into lists.',
       isDetailed
-        ? '7) 使用 Markdown，按逻辑给出 4-8 个二级标题（##）组织全文，每节风格可以不同但要连贯。'
-        : '7) 使用 Markdown，给出 3-6 个二级标题（##）组织全文，保持自然阅读节奏。',
+        ? chinese
+          ? '7) 使用 Markdown，并用 4-8 个二级标题（##）组织全文。'
+          : '7) Use Markdown with 4-8 level-2 headings (##) to organize the article logically.'
+        : chinese
+        ? '7) 使用 Markdown，并用 3-6 个二级标题（##）组织全文。'
+        : '7) Use Markdown with 3-6 level-2 headings (##) and a natural reading rhythm.',
       isDetailed
-        ? '8) 当前模式为“详解”：在保证可读性的前提下，尽量保留字幕中的关键细节、论据、数据与推导过程，不要过度压缩。'
+        ? chinese
+          ? '8) 当前为详解模式：在保证可读性前提下尽量保留细节、证据、数据与推理过程。'
+          : '8) Detailed mode: preserve critical details, evidence, data, and reasoning steps while keeping readability.'
         : '',
-      retry ? '9) 重试：你上次输出不完整，请完整输出一篇成文。' : '',
+      retry
+        ? chinese
+          ? '9) 重试：上次输出不完整，请输出完整文章。'
+          : '9) Retry: previous output was incomplete. Return a complete article.'
+        : '',
       '',
-      '必须覆盖的关键信息点：',
+      chinese ? '必须覆盖的关键信息点：' : 'Mandatory key points to cover:',
       ...coveragePoints.map((p, i) => `${i + 1}. ${p}`),
       '',
-      '原始字幕：',
+      chinese ? '原始转录：' : 'Raw transcript:',
       transcript,
     ]
       .filter(Boolean)
@@ -240,7 +288,7 @@ function splitArticleIntoSections(article: string): ArticleSection[] {
   const flush = () => {
     const content = currentLines.join('\n').trim()
     if (!content) return
-    const title = (currentTitle || '综合解读').trim()
+    const title = (currentTitle || 'Integrated Interpretation').trim()
     const anchor =
       content
         .split(/[。！？.!?\n]/)
@@ -286,7 +334,7 @@ function splitArticleIntoSections(article: string): ArticleSection[] {
             .map((s) => s.trim())
             .find(Boolean) || ''
         built.push({
-          title: `第${built.length + 1}部分`,
+          title: `Part ${built.length + 1}`,
           anchor: anchor.slice(0, 36),
           content,
         })
@@ -299,7 +347,7 @@ function splitArticleIntoSections(article: string): ArticleSection[] {
         .split(/[。！？.!?\n]/)
         .map((s) => s.trim())
         .find(Boolean) || ''
-    return [{ title: '完整解读', anchor: anchor.slice(0, 36), content: text }]
+    return [{ title: 'Full Interpretation', anchor: anchor.slice(0, 36), content: text }]
   }
 
   return sections
@@ -308,27 +356,28 @@ function splitArticleIntoSections(article: string): ArticleSection[] {
 export async function generateVideoInterpretation(
   title: string,
   transcript: string,
-  options?: { onStage?: StageHook; mode?: InterpretationMode },
+  options?: { onStage?: StageHook; mode?: InterpretationMode; language?: AppLanguage },
 ): Promise<VideoInterpretationResult> {
   const cleanTitle = String(title || 'Untitled video').trim()
   const vertex = createVertexProvider()
   const coverageModel = vertex(resolveVertexInterpretationCoverageModel())
   const articleModel = vertex(resolveVertexInterpretationArticleModel())
   const mode = normalizeInterpretationMode(options?.mode)
+  const language: AppLanguage = options?.language || 'en-US'
   const cleanTranscript = normalizeTranscript(transcript, mode)
   const coverageTimeoutMs = resolveTimeoutMs('VERTEX_COVERAGE_TIMEOUT_MS', mode === 'detailed' ? 180_000 : 120_000)
   const articleTimeoutMs = resolveTimeoutMs('VERTEX_ARTICLE_TIMEOUT_MS', mode === 'detailed' ? 240_000 : 150_000)
 
   await options?.onStage?.('outline')
   const coverage = await withTimeout(
-    generateCoverageMap(cleanTitle, cleanTranscript, coverageModel, mode),
+    generateCoverageMap(cleanTitle, cleanTranscript, coverageModel, mode, language),
     coverageTimeoutMs,
     'coverage generation timeout',
   )
 
   await options?.onStage?.('explaining')
   const article = await withTimeout(
-    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, articleModel, mode),
+    generateFullArticle(cleanTitle, cleanTranscript, coverage.coverage_points, articleModel, mode, language),
     articleTimeoutMs,
     'full article generation timeout',
   )
@@ -344,7 +393,7 @@ export async function generateVideoInterpretation(
     summary: section.content,
   }))
 
-  const summary = buildSummaryFromChapters(coverage.one_sentence_summary, chapters)
+  const summary = buildSummaryFromChapters(coverage.one_sentence_summary, chapters, language)
   const outline: OutlineResult = {
     overview: coverage.one_sentence_summary,
     chapters: sections.map((s) => ({

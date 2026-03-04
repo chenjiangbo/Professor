@@ -83,12 +83,12 @@ function parseRecord(raw: string | null): BBDownAuthRecord | null {
   }
 }
 
-export async function getBBDownAuthRecord(): Promise<BBDownAuthRecord | null> {
-  const raw = await getAppSetting(BBDOWN_AUTH_KEY)
+export async function getBBDownAuthRecord(userId: string): Promise<BBDownAuthRecord | null> {
+  const raw = await getAppSetting(userId, BBDOWN_AUTH_KEY)
   return parseRecord(raw)
 }
 
-export async function setBBDownAuth(input: { mode: BBDownAuthMode; value: string }) {
+export async function setBBDownAuth(userId: string, input: { mode: BBDownAuthMode; value: string }) {
   const cookie = normalizeCookieFromInput(input.mode, input.value)
   const now = new Date().toISOString()
   const record: BBDownAuthRecord = {
@@ -99,22 +99,22 @@ export async function setBBDownAuth(input: { mode: BBDownAuthMode; value: string
     lastValidatedAt: undefined,
     lastError: undefined,
   }
-  await setAppSetting(BBDOWN_AUTH_KEY, JSON.stringify(record))
+  await setAppSetting(userId, BBDOWN_AUTH_KEY, JSON.stringify(record))
   return record
 }
 
-export async function clearBBDownAuth() {
-  await deleteAppSetting(BBDOWN_AUTH_KEY)
+export async function clearBBDownAuth(userId: string) {
+  await deleteAppSetting(userId, BBDOWN_AUTH_KEY)
 }
 
-export async function getDecryptedBBDownCookie(): Promise<string | null> {
-  const record = await getBBDownAuthRecord()
+export async function getDecryptedBBDownCookie(userId: string): Promise<string | null> {
+  const record = await getBBDownAuthRecord(userId)
   if (!record) return null
   return decryptText(record.encryptedValue)
 }
 
-export async function updateBBDownAuthValidation(status: BBDownAuthStatus, lastError?: string) {
-  const record = await getBBDownAuthRecord()
+export async function updateBBDownAuthValidation(userId: string, status: BBDownAuthStatus, lastError?: string) {
+  const record = await getBBDownAuthRecord(userId)
   if (!record) return null
   const updated: BBDownAuthRecord = {
     ...record,
@@ -122,7 +122,7 @@ export async function updateBBDownAuthValidation(status: BBDownAuthStatus, lastE
     lastValidatedAt: new Date().toISOString(),
     lastError: lastError || undefined,
   }
-  await setAppSetting(BBDOWN_AUTH_KEY, JSON.stringify(updated))
+  await setAppSetting(userId, BBDOWN_AUTH_KEY, JSON.stringify(updated))
   return updated
 }
 

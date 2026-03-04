@@ -6,6 +6,8 @@ services:
     environment:
       POSTGRES_HOST: taleweave-postgres
       POSTGRES_PORT: 5432
+      DEV_AUTH_MODE: mock
+      DEV_AUTH_MOCK_USER_ID: 00000000-0000-0000-0000-000000000001
     networks:
       - xipi-network
 

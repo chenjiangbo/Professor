@@ -1,20 +1,24 @@
-import { updateVideo } from '~/lib/repo'
+import { updateVideo, upsertVideoLocalization } from '~/lib/repo'
 import { SourceType, VideoService } from '~/lib/types'
 import { fetchSubtitleByBBDown } from '~/lib/subtitle/bbdown'
 import { fetchSubtitleByYtDlp } from '~/lib/subtitle/ytdlp'
 import { fetchBilibiliVideoMeta } from '~/lib/bilibili/fetchBilibiliVideoMeta'
 import { fetchYouTubeVideoMeta } from '~/lib/youtube/preview'
 import { generateVideoInterpretation } from '~/lib/openai/videoInterpretation'
+import { translateTranscriptToLanguage } from '~/lib/openai/translate'
 import { validateSubtitleQuality } from '~/lib/subtitle/quality'
 import { normalizeInterpretationMode, type InterpretationMode } from '~/lib/interpretationMode'
+import { parseRequiredAppLanguage } from '~/lib/i18n'
 import {
   getBBDownAuthRecord,
   getDecryptedBBDownCookie,
   updateBBDownAuthValidation,
   validateBBDownAuthCookie,
 } from '~/lib/bbdown/auth'
+import { getDecryptedYouTubeAuth, getYouTubeAuthRecord, validateYouTubeAuthLocal } from '~/lib/youtube/auth'
 
 export type ProcessVideoImportArgs = {
+  userId: string
   dbVideoId: string
   sourceType: SourceType
   videoId?: string
@@ -31,29 +35,55 @@ export type ProcessVideoImportArgs = {
   sentenceNumber?: number
   outputLanguage?: string
   interpretationMode?: InterpretationMode
+  contentLanguage?: 'zh-CN' | 'en-US'
 }
 
 export async function processVideoImport(args: ProcessVideoImportArgs) {
-  const { dbVideoId, sourceType, videoId, sourceUrl, pageNumber, interpretationMode, rawTitle, rawText, sourceMime } =
-    args
+  const {
+    userId,
+    dbVideoId,
+    sourceType,
+    videoId,
+    sourceUrl,
+    pageNumber,
+    interpretationMode,
+    rawTitle,
+    rawText,
+    sourceMime,
+    contentLanguage,
+  } = args
+  const targetLanguage = parseRequiredAppLanguage(contentLanguage)
+  const syncVideoState = async (patch: Record<string, any>) => {
+    await updateVideo(dbVideoId, patch)
+    const localizationPatch = {
+      transcript: Object.prototype.hasOwnProperty.call(patch, 'transcript') ? patch.transcript ?? null : undefined,
+      summary: Object.prototype.hasOwnProperty.call(patch, 'summary') ? patch.summary ?? null : undefined,
+      chapters: Object.prototype.hasOwnProperty.call(patch, 'chapters') ? patch.chapters ?? null : undefined,
+      status: Object.prototype.hasOwnProperty.call(patch, 'status') ? patch.status ?? null : undefined,
+      last_error: Object.prototype.hasOwnProperty.call(patch, 'last_error') ? patch.last_error ?? null : undefined,
+    }
+    await upsertVideoLocalization(dbVideoId, targetLanguage, localizationPatch)
+  }
 
   try {
+    await upsertVideoLocalization(dbVideoId, targetLanguage, { status: 'queued', last_error: null })
+
     if (sourceType === 'text' || sourceType === 'file') {
       const transcript = String(rawText || '').trim()
-      const title = String(rawTitle || '导入内容').trim()
+      const title = String(rawTitle || 'Imported content').trim()
       if (!transcript) {
-        await updateVideo(dbVideoId, {
+        await syncVideoState({
           status: 'error',
           title,
-          summary: '导入失败：原文内容为空',
-          last_error: '原文内容为空',
+          summary: 'Import failed: source text is empty.',
+          last_error: 'Source text is empty.',
         })
         return
       }
 
       const mode = normalizeInterpretationMode(interpretationMode)
 
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         status: mode === 'none' ? 'processing_extract' : 'processing_outline',
         title,
         transcript,
@@ -63,7 +93,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       })
 
       if (mode === 'none') {
-        await updateVideo(dbVideoId, {
+        await syncVideoState({
           status: 'ready',
           title,
           transcript,
@@ -81,26 +111,27 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
         const interpretation = await generateVideoInterpretation(title, transcript, {
           onStage: async (stage) => {
             if (stage === 'explaining') {
-              await updateVideo(dbVideoId, { status: 'processing_explaining' })
+              await syncVideoState({ status: 'processing_explaining' })
             }
           },
           mode,
+          language: targetLanguage,
         })
         summary = interpretation.summary
         chapters = JSON.stringify(interpretation.chapters)
       } catch (e: any) {
-        const err = e?.message || '解读生成失败'
-        await updateVideo(dbVideoId, {
+        const err = e?.message || 'Interpretation generation failed'
+        await syncVideoState({
           status: 'error',
           title,
           transcript,
-          summary: `解读生成失败：${err}`,
+          summary: `Interpretation generation failed: ${err}`,
           last_error: err,
         })
         return
       }
 
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         status: 'ready',
         title,
         transcript,
@@ -113,24 +144,24 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     }
 
     if (sourceType !== 'bilibili' && sourceType !== 'youtube') {
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         status: 'error',
-        summary: `导入失败：不支持的资源类型 ${sourceType}`,
-        last_error: `不支持的资源类型 ${sourceType}`,
+        summary: `Import failed: unsupported source type "${sourceType}".`,
+        last_error: `Unsupported source type "${sourceType}".`,
       })
       return
     }
 
-    await updateVideo(dbVideoId, { status: 'processing_subtitle', last_error: null })
+    await syncVideoState({ status: 'processing_subtitle', last_error: null })
 
-    let title = '未命名视频'
+    let title = 'Untitled video'
     let transcript = ''
     let subtitleMeta: Record<string, any> = {}
     let subtitleError = ''
 
     if (sourceType === 'bilibili') {
       try {
-        const meta = await fetchBilibiliVideoMeta(String(videoId || ''))
+        const meta = await fetchBilibiliVideoMeta(userId, String(videoId || ''))
         if (meta?.title) {
           title = meta.title
         }
@@ -139,7 +170,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       }
     } else if (sourceType === 'youtube') {
       try {
-        const meta = await fetchYouTubeVideoMeta(String(sourceUrl || ''))
+        const meta = await fetchYouTubeVideoMeta(userId, String(sourceUrl || ''))
         if (meta?.title) {
           title = meta.title
         }
@@ -150,7 +181,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
 
     try {
       if (sourceType === 'bilibili') {
-        const bbdownSubtitle = await fetchSubtitleByBBDown(String(sourceUrl || ''), pageNumber)
+        const bbdownSubtitle = await fetchSubtitleByBBDown(userId, String(sourceUrl || ''), pageNumber, targetLanguage)
         if (bbdownSubtitle?.text) {
           transcript = bbdownSubtitle.text
           subtitleMeta = {
@@ -159,7 +190,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
           }
         }
       } else if (sourceType === 'youtube') {
-        const ytdlpSubtitle = await fetchSubtitleByYtDlp(String(sourceUrl || ''))
+        const ytdlpSubtitle = await fetchSubtitleByYtDlp(userId, String(sourceUrl || ''), targetLanguage)
         if (ytdlpSubtitle?.text) {
           transcript = ytdlpSubtitle.text
           subtitleMeta = {
@@ -170,45 +201,71 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       }
 
       if (!transcript && sourceType === 'bilibili') {
-        subtitleError = 'B 站未返回字幕轨道，或 BBDown 未产出字幕文件'
+        subtitleError = 'Bilibili did not provide subtitle tracks, or BBDown did not output subtitle files.'
       }
       if (!transcript && sourceType === 'youtube') {
-        subtitleError = 'YouTube 未提供可用字幕轨道，或 yt-dlp 未产出字幕文件'
+        subtitleError = 'YouTube did not provide usable subtitle tracks, or yt-dlp did not output subtitle files.'
       }
     } catch (e: any) {
-      subtitleError = e?.message || (sourceType === 'bilibili' ? 'BBDown 未知错误' : 'yt-dlp 未知错误')
+      subtitleError = e?.message || (sourceType === 'bilibili' ? 'Unknown BBDown error' : 'Unknown yt-dlp error')
       console.error(`${sourceType} subtitle fetch failed`, subtitleError)
     }
 
     if (!transcript) {
-      const authIssueHint = sourceType === 'bilibili' ? await getBBDownAuthIssueHint() : ''
-      const resolvedSubtitleError = [subtitleError || '无可用字幕', authIssueHint].filter(Boolean).join('；')
-      await updateVideo(dbVideoId, {
-        title: title || '未命名视频',
+      const authIssueHint =
+        sourceType === 'bilibili' ? await getBBDownAuthIssueHint(userId) : await getYouTubeAuthIssueHint(userId)
+      const resolvedSubtitleError = [subtitleError || 'No usable subtitles available.', authIssueHint]
+        .filter(Boolean)
+        .join(' ')
+      await syncVideoState({
+        title: title || 'Untitled video',
         status: 'error',
         subtitle_source: sourceType === 'bilibili' ? 'bbdown-only' : 'ytdlp-only',
-        summary: `字幕下载失败：${resolvedSubtitleError}`,
+        summary: `Subtitle download failed: ${resolvedSubtitleError}`,
         last_error: resolvedSubtitleError,
       })
       return
     }
 
+    const subtitleLang =
+      subtitleMeta.subtitle_language === 'zh' ? 'zh-CN' : subtitleMeta.subtitle_language === 'en' ? 'en-US' : null
+    if (subtitleLang && subtitleLang !== targetLanguage) {
+      try {
+        transcript = await translateTranscriptToLanguage(title, transcript, targetLanguage)
+        subtitleMeta = {
+          ...subtitleMeta,
+          subtitle_source: `translated-from-${subtitleLang}`,
+          subtitle_language: targetLanguage === 'zh-CN' ? 'zh' : 'en',
+        }
+      } catch (e: any) {
+        const reason = e?.message || 'Transcript translation failed'
+        await syncVideoState({
+          status: 'error',
+          title,
+          ...subtitleMeta,
+          summary: `Subtitle translation failed: ${reason}`,
+          last_error: reason,
+        })
+        return
+      }
+    }
+
     const quality = validateSubtitleQuality({ title, transcript })
     if (!quality.ok) {
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         title,
         status: 'error',
         transcript,
         ...subtitleMeta,
-        summary: `字幕质量校验失败：${quality.reason}`,
+        summary: `Subtitle quality validation failed: ${quality.reason}`,
         last_error: quality.reason,
       })
       return
     }
 
-    await updateVideo(dbVideoId, {
+    await syncVideoState({
       status: 'processing_outline',
-      title: title || '未命名视频',
+      title: title || 'Untitled video',
       transcript,
       ...subtitleMeta,
       last_error: null,
@@ -218,9 +275,9 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     let chapters: string | null = null
     const mode = normalizeInterpretationMode(interpretationMode)
     if (mode === 'none') {
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         status: 'ready',
-        title: title || '未命名视频',
+        title: title || 'Untitled video',
         transcript,
         summary: '',
         chapters: null,
@@ -231,33 +288,34 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       return
     }
     try {
-      const interpretation = await generateVideoInterpretation(title || '未命名视频', transcript, {
+      const interpretation = await generateVideoInterpretation(title || 'Untitled video', transcript, {
         onStage: async (stage) => {
           if (stage === 'explaining') {
-            await updateVideo(dbVideoId, { status: 'processing_explaining' })
+            await syncVideoState({ status: 'processing_explaining' })
           }
         },
         mode,
+        language: targetLanguage,
       })
       summary = interpretation.summary
       chapters = JSON.stringify(interpretation.chapters)
     } catch (e: any) {
-      const outlineError = e?.message || '大纲生成未知错误'
+      const outlineError = e?.message || 'Unknown outline generation error'
       console.error('video interpretation failed', outlineError)
-      await updateVideo(dbVideoId, {
+      await syncVideoState({
         status: 'error',
-        title: title || '未命名视频',
+        title: title || 'Untitled video',
         transcript,
         ...subtitleMeta,
-        summary: `大纲生成失败：${outlineError}`,
+        summary: `Outline generation failed: ${outlineError}`,
         last_error: outlineError,
       })
       return
     }
 
-    await updateVideo(dbVideoId, {
+    await syncVideoState({
       status: 'ready',
-      title: title || '未命名视频',
+      title: title || 'Untitled video',
       transcript,
       summary,
       chapters,
@@ -266,7 +324,11 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
     })
   } catch (e: any) {
     console.error('process video import failed', e.message)
-    await updateVideo(dbVideoId, { status: 'error', summary: `导入异常：${e.message}`, last_error: e.message })
+    await syncVideoState({
+      status: 'error',
+      summary: `Import failed unexpectedly: ${e.message}`,
+      last_error: e.message,
+    })
   }
 }
 
@@ -278,25 +340,51 @@ export function runVideoImportInBackground(args: ProcessVideoImportArgs) {
   }, 0)
 }
 
-async function getBBDownAuthIssueHint(): Promise<string> {
+async function getBBDownAuthIssueHint(userId: string): Promise<string> {
   try {
-    const record = await getBBDownAuthRecord()
-    if (!record) return ''
+    const record = await getBBDownAuthRecord(userId)
+    if (!record) {
+      return 'No Bilibili credential is configured. Go to Settings and add a valid Bilibili cookie (SESSDATA or full cookie).'
+    }
 
-    const cookie = await getDecryptedBBDownCookie()
+    const cookie = await getDecryptedBBDownCookie(userId)
     if (!cookie) {
-      return '检测到已保存的 BBDown 登录凭据读取失败，请到 Settings 重新保存凭据'
+      return 'Saved Bilibili credential could not be decrypted. Go to Settings and save it again.'
     }
 
     const validation = await validateBBDownAuthCookie(cookie)
     if (validation.valid) {
-      await updateBBDownAuthValidation('valid')
+      await updateBBDownAuthValidation(userId, 'valid')
       return ''
     }
 
-    await updateBBDownAuthValidation('invalid', validation.message)
-    return `检测到已保存的 BBDown 登录凭据已失效（${validation.message}），请到 Settings 更新`
+    await updateBBDownAuthValidation(userId, 'invalid', validation.message)
+    return `Saved Bilibili credential is invalid (${validation.message}). Go to Settings and update it.`
   } catch (e: any) {
-    return `检测到已保存的 BBDown 登录凭据状态异常（${e?.message || 'unknown error'}），请到 Settings 重新验证`
+    return `Bilibili credential state is abnormal (${
+      e?.message || 'unknown error'
+    }). Go to Settings and validate it again.`
+  }
+}
+
+async function getYouTubeAuthIssueHint(userId: string): Promise<string> {
+  try {
+    const record = await getYouTubeAuthRecord(userId)
+    if (!record) {
+      return 'No YouTube credential is configured. Go to Settings and add a valid YouTube cookie/cookies.txt.'
+    }
+
+    const auth = await getDecryptedYouTubeAuth(userId)
+    if (!auth?.value) {
+      return 'Saved YouTube credential could not be decrypted. Go to Settings and save it again.'
+    }
+
+    const validation = validateYouTubeAuthLocal(auth)
+    if (validation.valid) return ''
+    return `Saved YouTube credential is invalid (${validation.message}). Go to Settings and update it.`
+  } catch (e: any) {
+    return `YouTube credential state is abnormal (${
+      e?.message || 'unknown error'
+    }). Go to Settings and validate it again.`
   }
 }

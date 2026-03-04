@@ -15,12 +15,13 @@ interface BilibiliVideoInfo {
   }
 }
 export const fetchBilibiliSubtitleUrls = async (
+  userId: string,
   videoId: string,
   pageNumber?: null | string,
 ): Promise<BilibiliVideoInfo> => {
   let cookie = ''
   try {
-    cookie = (await getDecryptedBBDownCookie()) || ''
+    cookie = (await getDecryptedBBDownCookie(userId)) || ''
   } catch {
     cookie = ''
   }
@@ -56,7 +57,7 @@ export const fetchBilibiliSubtitleUrls = async (
     const { aid, pages } = json?.data || {}
     const { cid } = find(pages, { page: Number(pageNumber || 1) }) || {}
 
-    // 如果找不到 cid，直接返回基本信息（可能是合集但不在 pages 里）
+    // If cid is not found, return basic info directly (may be a collection not present in pages).
     if (!cid) {
       return json.data
     }
@@ -76,6 +77,6 @@ export const fetchBilibiliSubtitleUrls = async (
   }
 
   // return json.data.View;
-  // { code: -404, message: '啥都木有', ttl: 1 }
+  // Example error payload: { code: -404, message: 'not found', ttl: 1 }
   return json.data
 }
