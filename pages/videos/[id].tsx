@@ -167,9 +167,10 @@ const VideoDetail: NextPage = () => {
           </div>
           <div className="flex flex-1 items-center justify-end gap-6">
             <a
-              className="text-sm font-medium leading-normal text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
+              className="inline-flex items-center gap-1 text-sm font-medium leading-normal text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
               href="/settings"
             >
+              <span className="material-symbols-outlined text-[16px]">settings</span>
               Settings
             </a>
             <div className="flex items-center gap-3">

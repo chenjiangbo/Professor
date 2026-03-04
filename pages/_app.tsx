@@ -2,7 +2,6 @@ import { Lexend } from '@next/font/google'
 // Auth-related dependencies are not used yet, to avoid forcing Supabase env vars.
 // import { createBrowserSupabaseClient, Session } from '@supabase/auth-helpers-nextjs'
 // import { SessionContextProvider } from '@supabase/auth-helpers-react'
-import { Analytics } from '@vercel/analytics/react'
 import { ThemeProvider, useTheme } from 'next-themes'
 import type { AppProps } from 'next/app'
 import React, { useEffect, useState } from 'react'
@@ -60,7 +59,6 @@ function MyApp({
               <Component {...pageProps} showSingIn={showSingIn} />
             </main>
             <ThemeSync />
-            <Analytics />
             <CommandMenu />
           </div>
           <TailwindIndicator />

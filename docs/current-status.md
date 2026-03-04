@@ -12,7 +12,7 @@
 3. Notebook 现有组织能力（notebooks/videos/notes/chat）保持不变。
 4. 导入入口支持一次粘贴多个视频 URL（批量导入）。
 5. 字幕下载与 LLM 生成均在后台异步执行，前端不阻塞，可继续其它操作。
-6. BBDown 登录改为 Settings 手动填写 SESSDATA/Cookie 并持久化保存（加密存储 + 可校验状态）。
+6. BBDown 登录支持 Settings 扫码登录 + 手动填写 SESSDATA/Cookie，均持久化保存（加密存储 + 可校验状态）。
 
 对应设计文档：
 

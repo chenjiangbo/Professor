@@ -192,13 +192,14 @@ const NotebookDetail: NextPage = () => {
   const isZh = language === 'zh-CN'
   const tx = (en: string, zh: string) => (isZh ? zh : en)
   const { data: notebook } = useSWR<Notebook>(id ? `/api/notebooks/${id}` : null, fetcher)
-  const { data: videos = [], mutate } = useSWR<Video[]>(
+  const { data: videosData, mutate } = useSWR<Video[]>(
     id ? `/api/notebooks/${id}/videos?lang=${encodeURIComponent(language)}` : null,
     fetcher,
     {
       refreshInterval: 3500,
     },
   )
+  const videos = useMemo(() => (Array.isArray(videosData) ? videosData : []), [videosData])
 
   const [urlInput, setUrlInput] = useState('')
   const [textTitleInput, setTextTitleInput] = useState('')
@@ -222,9 +223,13 @@ const NotebookDetail: NextPage = () => {
   const [assistantMaximized, setAssistantMaximized] = useState(false)
   const [reimportingVideoId, setReimportingVideoId] = useState<string>('')
 
-  const { data: initialHistory = [] } = useSWR<ChatMessage[]>(
+  const { data: initialHistoryData } = useSWR<ChatMessage[]>(
     id && activeVideoId ? `/api/notebooks/${id}/chats?videoId=${encodeURIComponent(activeVideoId)}` : null,
     fetcher,
+  )
+  const initialHistory = useMemo(
+    () => (Array.isArray(initialHistoryData) ? initialHistoryData : []),
+    [initialHistoryData],
   )
   const [input, setInput] = useState('')
   const [isChatInputComposing, setIsChatInputComposing] = useState(false)
@@ -233,11 +238,12 @@ const NotebookDetail: NextPage = () => {
     fetcher,
     { refreshInterval: 2500 },
   )
-  const { data: batchItems = [] } = useSWR<ImportBatchItem[]>(
+  const { data: batchItemsData } = useSWR<ImportBatchItem[]>(
     lastBatchId ? `/api/import-batches/${lastBatchId}/items` : null,
     fetcher,
     { refreshInterval: 2500 },
   )
+  const batchItems = useMemo(() => (Array.isArray(batchItemsData) ? batchItemsData : []), [batchItemsData])
   const { data: defaultInterpretationModeData } = useSWR<{ mode: InterpretationMode }>(
     '/api/settings/interpretation-mode',
     fetcher,
@@ -938,9 +944,10 @@ const NotebookDetail: NextPage = () => {
             <div className="flex items-center gap-2">
               <span className="text-base font-medium text-text-muted dark:text-white/30">/</span>
               <a
-                className="text-sm font-medium text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
+                className="inline-flex items-center gap-1 text-sm font-medium text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
                 href="/notebooks"
               >
+                <span className="material-symbols-outlined text-[16px]">menu_book</span>
                 {tx('Notebooks', '笔记本')}
               </a>
               <span className="text-base font-medium text-text-muted dark:text-white/30">/</span>
@@ -949,9 +956,10 @@ const NotebookDetail: NextPage = () => {
           </div>
           <div className="flex flex-1 items-center justify-end gap-6">
             <a
-              className="text-sm font-medium text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
+              className="inline-flex items-center gap-1 text-sm font-medium text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
               href="/settings"
             >
+              <span className="material-symbols-outlined text-[16px]">settings</span>
               {tx('Settings', '设置')}
             </a>
             <div className="flex items-center gap-3">

@@ -469,13 +469,21 @@ function isRetryableModelError(e: any): boolean {
   if (status >= 500 && status < 600) return true
 
   const text = `${String(e?.message || '')} ${String(e?.cause?.message || '')}`.toLowerCase()
-  return (
-    text.includes('rate limit') ||
-    text.includes('resource exhausted') ||
-    text.includes('quota') ||
-    text.includes('too many requests') ||
-    text.includes('temporarily unavailable')
-  )
+  const retryableHints = [
+    'rate limit',
+    'resource exhausted',
+    'quota',
+    'too many requests',
+    'temporarily unavailable',
+    'cannot connect to api',
+    'other side closed',
+    'socket hang up',
+    'connection reset',
+    'econnreset',
+    'etimedout',
+    'fetch failed',
+  ]
+  return retryableHints.some((hint) => text.includes(hint))
 }
 
 function logModelError(

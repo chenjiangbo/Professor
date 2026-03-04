@@ -140,13 +140,6 @@ const Home: NextPage = () => {
                   </a>
                   <a
                     className="inline-flex items-center gap-1 text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
-                    href="/"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">home</span>
-                    {tx('Hero', '首页')}
-                  </a>
-                  <a
-                    className="inline-flex items-center gap-1 text-sm font-medium text-text-muted transition-colors hover:text-text-main dark:text-white/60 dark:hover:text-white/80"
                     href="/settings"
                   >
                     <span className="material-symbols-outlined text-[16px]">settings</span>
