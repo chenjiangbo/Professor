@@ -10,7 +10,7 @@
   "lint-staged": {
     "**/*": "prettier --write --ignore-unknown"
   },
-  "repository": "https://github.com/JimmyLv/BibiGPT.git",
+  "repository": "https://github.com/chenjiangbo/Professor.git",
   "dependencies": {
     "@ai-sdk/google-vertex": "^3.0.108",
     "@ai-sdk/react": "^2.0.114",
@@ -31,6 +31,7 @@
     "@supabase/auth-ui-shared": "^0.1.2",
     "@supabase/supabase-js": "^2.10.0",
     "@teovilla/shadcn-ui-react": "^0.5.0",
+    "@types/qrcode": "^1.5.6",
     "@vercel/analytics": "^0.1.8",
     "ai": "^5.0.112",
     "class-variance-authority": "^0.4.0",
@@ -55,6 +56,7 @@
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "prop-types": "^15.8.1",
+    "qrcode": "^1.5.4",
     "react": "18.2.0",
     "react-bilibili-embed-renderer": "^1.2.1",
     "react-dom": "18.2.0",
