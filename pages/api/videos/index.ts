@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { createVideo, getVideo, updateVideoForUser } from '~/lib/repo'
 import { extractPageNumberFromUrl, isBilibiliUrl, normalizeBilibiliVideoId } from '~/lib/bilibili/preview'
 import { isYouTubeUrl, normalizeYouTubeVideoId } from '~/lib/youtube/preview'
+import { isDouyinUrl, normalizeDouyinVideoId } from '~/lib/douyin/preview'
 import { runVideoImportInBackground } from '~/lib/import/processVideoImport'
 import { normalizeInterpretationMode } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
@@ -48,8 +49,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const isBili = isBilibiliUrl(url)
     const isYT = isYouTubeUrl(url)
-    if (!isBili && !isYT) {
-      res.status(400).json({ error: 'Only Bilibili or YouTube URLs are supported' })
+    const isDY = isDouyinUrl(url)
+    if (!isBili && !isYT && !isDY) {
+      res.status(400).json({ error: 'Only Bilibili, YouTube, or Douyin URLs are supported' })
       return
     }
     let targetLanguage: 'zh-CN' | 'en-US'
@@ -60,9 +62,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
-    const service = isBili ? VideoService.Bilibili : VideoService.YouTube
-    const sourceType = isBili ? 'bilibili' : 'youtube'
-    const videoId = isBili ? normalizeBilibiliVideoId(url) : normalizeYouTubeVideoId(url)
+    const service = isBili ? VideoService.Bilibili : isDY ? VideoService.Douyin : VideoService.YouTube
+    const sourceType = isBili ? 'bilibili' : isDY ? 'douyin' : 'youtube'
+    const videoId = isBili
+      ? normalizeBilibiliVideoId(url)
+      : isDY
+      ? normalizeDouyinVideoId(url)
+      : normalizeYouTubeVideoId(url)
     const pageNumber = isBili ? extractPageNumberFromUrl(url) : undefined
 
     let created

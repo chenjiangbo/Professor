@@ -12,8 +12,9 @@ ENV PORT 3000
 
 # Build prerequisites for native dependencies (e.g., bufferutil) + npm retry/mirror setup
 RUN apk add --no-cache python3 make g++ \
-    && apk add --no-cache curl unzip ffmpeg yt-dlp \
+    && apk add --no-cache py3-pip curl unzip ffmpeg \
     && apk add --no-cache gcompat \
+    && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
     && npm config set fetch-retries 5 \
     && npm config set fetch-retry-factor 2 \
     && npm config set fetch-timeout 120000 \

@@ -3,6 +3,8 @@ import os from 'os'
 import path from 'path'
 import { runYtDlp, runYtDlpJson } from '~/lib/youtube/ytdlp'
 import { buildYouTubeAuthArgs } from '~/lib/youtube/auth'
+import { buildDouyinAuthArgs } from '~/lib/douyin/auth'
+import { isDouyinUrl } from '~/lib/douyin/preview'
 
 export type YtDlpSubtitle = {
   text: string
@@ -245,7 +247,7 @@ export async function fetchSubtitleByYtDlp(
   preferredLanguage: 'zh-CN' | 'en-US' = 'en-US',
 ): Promise<YtDlpSubtitle | null> {
   const metaDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ytdlp-meta-'))
-  const metaAuthArgs = await buildYouTubeAuthArgs(userId, metaDir)
+  const metaAuthArgs = await resolveYtDlpAuthArgs(userId, url, metaDir)
   const meta = await runYtDlpJson([...metaAuthArgs, '--no-playlist', url], metaDir)
   const title = String(meta?.title || '').trim()
   const videoId = String(meta?.id || '').trim()
@@ -297,7 +299,7 @@ export async function fetchSubtitleByYtDlp(
       '-o',
       outputTemplate,
     ]
-    const authArgs = await buildYouTubeAuthArgs(userId, tempDir)
+    const authArgs = await resolveYtDlpAuthArgs(userId, url, tempDir)
     if (authArgs.length) args.unshift(...authArgs)
     if (candidate.isAi) {
       args.push('--write-auto-subs', '--no-write-subs')
@@ -352,4 +354,11 @@ export async function fetchSubtitleByYtDlp(
   }
 
   throw new Error(`yt-dlp subtitle download failed: ${attemptErrors.slice(0, 5).join(' | ')}`)
+}
+
+async function resolveYtDlpAuthArgs(userId: string, url: string, tempDir: string): Promise<string[]> {
+  if (isDouyinUrl(url)) {
+    return buildDouyinAuthArgs(userId, tempDir)
+  }
+  return buildYouTubeAuthArgs(userId, tempDir)
 }

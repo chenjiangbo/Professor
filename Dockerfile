@@ -16,7 +16,8 @@ COPY package.json package-lock.json ./
 
 # Build prerequisites for native dependencies (e.g., bufferutil) + npm retry/mirror setup
 RUN apk add --no-cache python3 make g++ \
-    && apk add --no-cache curl unzip ffmpeg yt-dlp \
+    && apk add --no-cache py3-pip curl unzip ffmpeg \
+    && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp \
     && npm config set fetch-retries 5 \
     && npm config set fetch-retry-factor 2 \
     && npm config set fetch-timeout 120000 \
@@ -56,7 +57,8 @@ ENV PORT 3000
 RUN addgroup -g 1001 -S nodejs &&\
     adduser -S nextjs -u 1001
 
-RUN apk add --no-cache ffmpeg yt-dlp libc6-compat gcompat
+RUN apk add --no-cache python3 py3-pip ffmpeg libc6-compat gcompat \
+    && pip3 install --no-cache-dir --break-system-packages --upgrade yt-dlp
 
 COPY --from=builder /usr/local/bin/BBDown /usr/local/bin/BBDown
 

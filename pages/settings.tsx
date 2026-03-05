@@ -31,6 +31,12 @@ const SettingsPage: NextPage = () => {
   const [ytSaving, setYtSaving] = useState(false)
   const [ytValidating, setYtValidating] = useState(false)
   const [ytMessage, setYtMessage] = useState('')
+  const [dyMode, setDyMode] = useState<'cookie' | 'cookies_txt'>('cookie')
+  const [dyValue, setDyValue] = useState('')
+  const [dyAuthState, setDyAuthState] = useState<any>(null)
+  const [dySaving, setDySaving] = useState(false)
+  const [dyValidating, setDyValidating] = useState(false)
+  const [dyMessage, setDyMessage] = useState('')
   const [defaultInterpretationMode, setDefaultInterpretationMode] = useState<'concise' | 'detailed'>('concise')
 
   const loadAuthState = async () => {
@@ -80,10 +86,22 @@ const SettingsPage: NextPage = () => {
     }
   }
 
+  const loadDouyinAuthState = async () => {
+    try {
+      const res = await fetch('/api/settings/douyin-auth')
+      const json = await res.json()
+      setDyAuthState(json)
+      setDyMode(json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie')
+    } catch {
+      setDyAuthState({ configured: false })
+    }
+  }
+
   useEffect(() => {
     loadAuthState()
     loadQrState()
     loadYouTubeAuthState()
+    loadDouyinAuthState()
     loadInterpretationMode()
   }, [])
 
@@ -342,6 +360,65 @@ const SettingsPage: NextPage = () => {
     setYtMessage(tx('YouTube credential cleared.', 'YouTube 凭据已清除。'))
   }
 
+  const saveDouyinAuth = async () => {
+    if (!dyValue.trim()) {
+      setDyMessage(
+        tx('Please paste a Douyin Cookie or cookies.txt content first.', '请先粘贴抖音 Cookie 或 cookies.txt 内容。'),
+      )
+      return
+    }
+    setDySaving(true)
+    setDyMessage('')
+    try {
+      const res = await fetch('/api/settings/douyin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: dyMode, value: dyValue }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      const base = json?.validation?.valid
+        ? tx('Douyin credential saved successfully, format validation passed.', '抖音凭据保存成功，格式校验通过。')
+        : `${tx('Douyin credential saved, but validation failed:', '抖音凭据已保存，但校验失败：')} ${
+            json?.validation?.message || tx('Unknown error', '未知错误')
+          }`
+      setDyMessage(base)
+      setDyValue('')
+      await loadDouyinAuthState()
+    } catch (e: any) {
+      setDyMessage(e?.message || tx('Failed to save Douyin credential', '保存抖音凭据失败'))
+    } finally {
+      setDySaving(false)
+    }
+  }
+
+  const validateDouyinAuth = async () => {
+    setDyValidating(true)
+    setDyMessage('')
+    try {
+      const res = await fetch('/api/settings/douyin-auth/validate', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json?.error || res.statusText)
+      const base = json?.validation?.valid
+        ? tx('Douyin credential is valid.', '抖音凭据有效。')
+        : `${tx('Douyin credential is invalid:', '抖音凭据无效：')} ${json?.validation?.message || ''}`
+      setDyMessage(base)
+      await loadDouyinAuthState()
+    } catch (e: any) {
+      setDyMessage(e?.message || tx('Douyin credential validation failed', '抖音凭据校验失败'))
+    } finally {
+      setDyValidating(false)
+    }
+  }
+
+  const clearDouyinAuth = async () => {
+    setDyMessage('')
+    await fetch('/api/settings/douyin-auth', { method: 'DELETE' })
+    await loadDouyinAuthState()
+    setDyValue('')
+    setDyMessage(tx('Douyin credential cleared.', '抖音凭据已清除。'))
+  }
+
   return (
     <>
       <Head>
@@ -409,8 +486,8 @@ const SettingsPage: NextPage = () => {
                 </div>
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-200">
                   {tx(
-                    'If you import Bilibili or YouTube videos, configure platform credentials first (full Cookie recommended).',
-                    '如果你要导入 Bilibili 或 YouTube 视频，请先配置平台凭据（建议完整 Cookie）。',
+                    'If you import Bilibili, YouTube, or Douyin videos, configure platform credentials first (full Cookie recommended).',
+                    '如果你要导入 Bilibili、YouTube 或抖音视频，请先配置平台凭据（建议完整 Cookie）。',
                   )}
                   <a className="ml-2 font-semibold underline" href="#bbdown-login">
                     {tx('Jump to credential section', '跳转到凭据设置')}
@@ -495,9 +572,16 @@ const SettingsPage: NextPage = () => {
                   </div>
                   <div className="rounded-lg border border-border-strong bg-card p-6 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none">
                     <div className="mb-4">
-                      <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
-                        {tx('Bilibili / BBDown Login', 'Bilibili / BBDown 登录')}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <img
+                          src="/assets/platform-logos/bilibili.svg"
+                          alt="Bilibili logo"
+                          className="h-5 w-5 shrink-0"
+                        />
+                        <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
+                          {tx('Bilibili / BBDown Login', 'Bilibili / BBDown 登录')}
+                        </p>
+                      </div>
                       <p className="mt-1 text-sm text-text-muted dark:text-gray-400">
                         {tx(
                           'Save your own Bilibili credential for stable subtitle downloading via BBDown.',
@@ -714,9 +798,12 @@ const SettingsPage: NextPage = () => {
                   </div>
                   <div className="rounded-lg border border-border-strong bg-card p-6 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none">
                     <div className="mb-4">
-                      <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
-                        {tx('YouTube / yt-dlp Login', 'YouTube / yt-dlp 登录')}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <img src="/assets/platform-logos/youtube.svg" alt="YouTube logo" className="h-5 w-5 shrink-0" />
+                        <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
+                          {tx('YouTube / yt-dlp Login', 'YouTube / yt-dlp 登录')}
+                        </p>
+                      </div>
                       <p className="mt-1 text-sm text-text-muted dark:text-gray-400">
                         {tx(
                           'Save your YouTube credential for restricted-video subtitle downloads.',
@@ -833,6 +920,137 @@ const SettingsPage: NextPage = () => {
                         <button
                           onClick={clearYouTubeAuth}
                           disabled={!ytAuthState?.configured}
+                          className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
+                        >
+                          {tx('Clear', '清除')}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border-strong bg-card p-6 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none">
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2">
+                        <img src="/assets/platform-logos/douyin.svg" alt="Douyin logo" className="h-5 w-5 shrink-0" />
+                        <p className="text-lg font-bold leading-tight tracking-[-0.015em] text-text-main dark:text-white">
+                          {tx('Douyin / yt-dlp Login', '抖音 / yt-dlp 登录')}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-sm text-text-muted dark:text-gray-400">
+                        {tx(
+                          'Save your Douyin credential for restricted-video subtitle downloads.',
+                          '保存抖音凭据，用于受限视频字幕下载。',
+                        )}
+                      </p>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="rounded-md border border-border-strong bg-white/60 p-3 text-sm dark:border-white/20 dark:bg-black/20">
+                        {!dyAuthState ? (
+                          <p className="text-text-muted dark:text-gray-400">
+                            {tx('Loading status...', '加载状态中...')}
+                          </p>
+                        ) : dyAuthState?.configured ? (
+                          <div className="space-y-1">
+                            <p>
+                              {tx('Status:', '状态：')}
+                              <span
+                                className={
+                                  dyAuthState?.status === 'valid'
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : dyAuthState?.status === 'invalid'
+                                    ? 'text-red-600 dark:text-red-400'
+                                    : 'text-yellow-600 dark:text-yellow-300'
+                                }
+                              >
+                                {dyAuthState?.status || tx('unknown', '未知')}
+                              </span>
+                            </p>
+                            <p>
+                              {tx('Mode:', '模式：')} {dyAuthState?.mode}
+                            </p>
+                            <p>
+                              {tx('Credential:', '凭据：')} {dyAuthState?.maskedCredential || '****'}
+                            </p>
+                            <p>
+                              {tx('Last validated at:', '最近校验时间：')}
+                              {dyAuthState?.lastValidatedAt
+                                ? new Date(dyAuthState.lastValidatedAt).toLocaleString()
+                                : tx('N/A', '无')}
+                            </p>
+                            {dyAuthState?.lastError ? (
+                              <p className="text-red-500 dark:text-red-400">
+                                {tx('Last error:', '最近错误：')} {dyAuthState.lastError}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <p className="text-text-muted dark:text-gray-400">
+                            {tx('Not configured yet.', '尚未配置。')}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-main dark:text-white/90">
+                          {tx('Credential type', '凭据类型')}
+                        </label>
+                        <select
+                          value={dyMode}
+                          onChange={(e) => setDyMode(e.target.value as any)}
+                          className="block w-full rounded-md border border-border-strong bg-white py-2 pl-3 pr-10 text-text-main focus:border-accent focus:outline-none dark:border-white/20 dark:bg-white/5 dark:text-white"
+                        >
+                          <option value="cookie">
+                            {tx('Full Cookie string (Recommended)', '完整 Cookie 字符串（推荐）')}
+                          </option>
+                          <option value="cookies_txt">{tx('cookies.txt content', 'cookies.txt 内容')}</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-text-main dark:text-white/90">
+                          {dyMode === 'cookie' ? tx('Cookie', 'Cookie') : 'cookies.txt'}
+                        </label>
+                        <textarea
+                          value={dyValue}
+                          onChange={(e) => setDyValue(e.target.value)}
+                          rows={6}
+                          placeholder={
+                            dyMode === 'cookie'
+                              ? tx('Paste full Cookie string', '粘贴完整 Cookie 字符串')
+                              : tx(
+                                  'Paste cookies.txt content (Netscape format)',
+                                  '粘贴 cookies.txt 内容（Netscape 格式）',
+                                )
+                          }
+                          className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                        />
+                        <p className="mt-2 text-xs text-text-muted dark:text-gray-400">
+                          {tx(
+                            'If Douyin download asks for login, update your full Douyin Cookie or cookies.txt.',
+                            '如果抖音下载要求登录，请更新完整抖音 Cookie 或 cookies.txt。',
+                          )}
+                        </p>
+                      </div>
+
+                      {dyMessage ? <p className="text-sm text-text-main dark:text-white/80">{dyMessage}</p> : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={saveDouyinAuth}
+                          disabled={dySaving}
+                          className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
+                        >
+                          {dySaving ? tx('Saving...', '保存中...') : tx('Save', '保存')}
+                        </button>
+                        <button
+                          onClick={validateDouyinAuth}
+                          disabled={dyValidating || !dyAuthState?.configured}
+                          className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-main hover:border-accent/70 disabled:opacity-50 dark:border-white/20 dark:text-white"
+                        >
+                          {dyValidating ? tx('Validating...', '校验中...') : tx('Validate', '校验')}
+                        </button>
+                        <button
+                          onClick={clearDouyinAuth}
+                          disabled={!dyAuthState?.configured}
                           className="rounded-lg border border-red-300 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10"
                         >
                           {tx('Clear', '清除')}

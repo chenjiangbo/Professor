@@ -9,6 +9,7 @@ import { ModeToggle } from '~/components/mode-toggle'
 import LanguageSwitcher from '~/components/LanguageSwitcher'
 import { useAppLanguage } from '~/hooks/useAppLanguage'
 import Markdown from 'marked-react'
+import type { SubscriptionTier } from '~/lib/billing/repo'
 
 type Video = {
   id: string
@@ -16,7 +17,7 @@ type Video = {
   duration?: string
   status: string
   platform?: string
-  source_type?: 'bilibili' | 'youtube' | 'text' | 'file'
+  source_type?: 'bilibili' | 'youtube' | 'douyin' | 'text' | 'file'
   source_mime?: string
   source_url?: string
   generation_profile?: 'full_interpretation' | 'summary_only' | 'import_only'
@@ -71,10 +72,43 @@ type ImportLocalFile = {
   contentBase64: string
 }
 
+type MePayload = {
+  user_id: string
+  tier: SubscriptionTier
+}
+
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
+
+const meFetcher = async (url: string): Promise<MePayload | null> => {
+  const res = await fetch(url)
+  const data = await res.json().catch(() => null)
+  if (!res.ok || !data?.user_id || !data?.tier) return null
+  return data as MePayload
+}
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function isDouyinUrl(input: string) {
+  try {
+    const u = new URL(String(input || '').trim())
+    const host = u.hostname.toLowerCase()
+    return host === 'v.douyin.com' || host.endsWith('douyin.com') || host.endsWith('iesdouyin.com')
+  } catch {
+    return false
+  }
+}
+
+function splitInputUrls(input: string) {
+  return String(input || '')
+    .split(/[\n,，\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function getUtf8Length(input: string) {
+  return new TextEncoder().encode(String(input || '')).length
 }
 
 async function parseResponseJsonSafe(res: Response) {
@@ -174,6 +208,14 @@ function getSourceTypeMeta(video: Video) {
         'border border-rose-300 bg-rose-100 text-rose-900 dark:border-rose-500/20 dark:bg-rose-500/20 dark:text-rose-200',
     }
   }
+  if (kind === 'douyin' || video.platform === 'douyin') {
+    return {
+      label: 'DY',
+      icon: 'movie',
+      badge:
+        'border border-fuchsia-300 bg-fuchsia-100 text-fuchsia-900 dark:border-fuchsia-500/20 dark:bg-fuchsia-500/20 dark:text-fuchsia-200',
+    }
+  }
   return {
     label: 'Bili',
     icon: 'smart_display',
@@ -207,6 +249,7 @@ const NotebookDetail: NextPage = () => {
   const isZh = language === 'zh-CN'
   const tx = (en: string, zh: string) => (isZh ? zh : en)
   const { data: notebook } = useSWR<Notebook>(id ? `/api/notebooks/${id}` : null, fetcher)
+  const { data: me } = useSWR<MePayload | null>('/api/auth/me', meFetcher)
   const { data: videosData, mutate } = useSWR<Video[]>(
     id ? `/api/notebooks/${id}/videos?lang=${encodeURIComponent(language)}` : null,
     fetcher,
@@ -223,12 +266,17 @@ const NotebookDetail: NextPage = () => {
   const [importTab, setImportTab] = useState<ImportTab>('url')
   const [showImportModal, setShowImportModal] = useState(false)
   const [importError, setImportError] = useState('')
+  const [importNotice, setImportNotice] = useState('')
   const [lastBatchId, setLastBatchId] = useState<string>('')
   const [expandMode, setExpandMode] = useState<ImportExpandMode>('current')
   const [importInterpretationMode, setImportInterpretationMode] = useState<InterpretationMode>('concise')
 
   const [selected, setSelected] = useState<string[]>([])
   const [loadingImport, setLoadingImport] = useState(false)
+  const [exportingZip, setExportingZip] = useState(false)
+  const [exportIncludeInterpretation, setExportIncludeInterpretation] = useState(true)
+  const [exportIncludeSubtitle, setExportIncludeSubtitle] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState<MainTab>('learn')
   const [activeVideoId, setActiveVideoId] = useState<string>('')
@@ -238,6 +286,12 @@ const NotebookDetail: NextPage = () => {
   const [showAssistantPanel, setShowAssistantPanel] = useState(true)
   const [assistantMaximized, setAssistantMaximized] = useState(false)
   const [reimportingVideoId, setReimportingVideoId] = useState<string>('')
+  const tier = me?.tier || 'free'
+  const importDailyLimit = tier === 'premium' ? null : tier === 'pro' ? 15 : 5
+  const canExportZip = false
+  const transcriptByteLimit = 90000
+  const textByteLength = getUtf8Length(textBodyInput.trim())
+  const textWillTruncate = textByteLength > transcriptByteLimit
 
   const { data: initialHistoryData } = useSWR<ChatMessage[]>(
     id && activeVideoId ? `/api/notebooks/${id}/chats?videoId=${encodeURIComponent(activeVideoId)}` : null,
@@ -250,6 +304,7 @@ const NotebookDetail: NextPage = () => {
   const [input, setInput] = useState('')
   const [isChatInputComposing, setIsChatInputComposing] = useState(false)
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const exportMenuRef = useRef<HTMLDivElement | null>(null)
   const { data: batchSummary } = useSWR<ImportBatchSummary>(
     lastBatchId ? `/api/import-batches/${lastBatchId}` : null,
     fetcher,
@@ -304,6 +359,27 @@ const NotebookDetail: NextPage = () => {
   useEffect(() => {
     autoResizeChatInput()
   }, [input])
+
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      const node = exportMenuRef.current
+      if (!node) return
+      if (node.contains(event.target as Node)) return
+      setExportMenuOpen(false)
+    }
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExportMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [exportMenuOpen])
 
   useEffect(() => {
     setCopiedInterpretation(false)
@@ -400,14 +476,68 @@ const NotebookDetail: NextPage = () => {
     mutate()
   }
 
+  const handleExportNotebook = async () => {
+    if (!id) return
+    setExportMenuOpen(false)
+    if (!canExportZip) {
+      alert(tx('Notebook export is currently unavailable.', '笔记本导出当前不可用。'))
+      return
+    }
+    if (!exportIncludeInterpretation && !exportIncludeSubtitle) {
+      alert(tx('Please select at least one export content type.', '请至少勾选一种导出内容。'))
+      return
+    }
+    setExportingZip(true)
+    try {
+      const params = new URLSearchParams({
+        lang: language,
+        includeInterpretation: exportIncludeInterpretation ? '1' : '0',
+        includeSubtitle: exportIncludeSubtitle ? '1' : '0',
+      })
+      const res = await fetch(`/api/notebooks/${id}/export?${params.toString()}`)
+      if (!res.ok) {
+        const json = await parseResponseJsonSafe(res)
+        throw new Error(json?.error || tx('Export failed.', '导出失败。'))
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const filename = `${
+        String(notebook?.title || 'notebook')
+          .replace(/[<>:\"/\\|?*\u0000-\u001F]/g, ' ')
+          .trim() || 'notebook'
+      }.zip`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert(e?.message || tx('Export failed.', '导出失败。'))
+    } finally {
+      setExportingZip(false)
+    }
+  }
+
   const handleImport = async () => {
     if (!id) return
     setImportError('')
+    setImportNotice('')
     setLoadingImport(true)
     try {
       let res: Response
       if (importTab === 'url') {
         if (!urlInput.trim()) throw new Error(tx('Please paste at least one URL.', '请至少粘贴一个 URL。'))
+        const parsedUrls = splitInputUrls(urlInput)
+        if (parsedUrls.some((url) => isDouyinUrl(url))) {
+          throw new Error(
+            tx(
+              'Douyin import is temporarily unavailable. Please import Bilibili or YouTube URLs.',
+              '抖音导入暂不支持，请先导入 Bilibili 或 YouTube 链接。',
+            ),
+          )
+        }
         res = await fetch('/api/videos/import-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -432,22 +562,7 @@ const NotebookDetail: NextPage = () => {
           }),
         })
       } else {
-        if (!importFiles.length) throw new Error(tx('Please select at least one file.', '请至少选择一个文件。'))
-        res = await fetch('/api/sources/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            notebookId: id,
-            interpretationMode: importInterpretationMode,
-            contentLanguage: language,
-            items: importFiles.map((f) => ({
-              type: 'file',
-              name: f.name,
-              mimeType: f.mimeType,
-              contentBase64: f.contentBase64,
-            })),
-          }),
-        })
+        throw new Error(tx('File import is temporarily unavailable.', '文件导入暂不支持。'))
       }
       const json = await parseResponseJsonSafe(res)
       if (!res.ok) {
@@ -468,12 +583,12 @@ const NotebookDetail: NextPage = () => {
         )
       }
       setLastBatchId(json.batchId)
-      setShowImportModal(false)
-      setUrlInput('')
-      setTextTitleInput('')
-      setTextBodyInput('')
-      setImportFiles([])
-      setImportTab('url')
+      setImportNotice(
+        tx(
+          'Import task submitted. It is processing in background; close this window after items appear in the source list.',
+          '导入任务已提交，正在后台处理；等左侧资源列表出现条目后再关闭窗口。',
+        ),
+      )
       mutate()
     } catch (e: any) {
       setImportError(e?.message || tx('Import failed', '导入失败'))
@@ -708,7 +823,9 @@ const NotebookDetail: NextPage = () => {
             {canReimport ? renderReimportMenu(activeVideo) : null}
           </div>
           <p className="mt-3 text-red-300">{activeVideo.summary || tx('Processing failed.', '处理失败。')}</p>
-          {(activeVideo.source_type === 'bilibili' || activeVideo.source_type === 'youtube') && (
+          {(activeVideo.source_type === 'bilibili' ||
+            activeVideo.source_type === 'youtube' ||
+            activeVideo.source_type === 'douyin') && (
             <p className="mt-2 text-xs text-amber-200">
               {tx('If subtitle download failed, check your platform credentials in ', '若字幕下载失败，请先检查 ')}
               <a href="/settings" className="font-semibold underline">
@@ -813,7 +930,9 @@ const NotebookDetail: NextPage = () => {
             </div>
             <div className="markdown-body mt-3 text-base leading-8 text-slate-800 dark:text-slate-100">
               <Markdown>
-                {compactSummary || activeVideo.interpretation_mode === 'none'
+                {compactSummary
+                  ? compactSummary
+                  : activeVideo.interpretation_mode === 'none'
                   ? tx(
                       'This resource is import-only. No summary/interpretation was generated.',
                       '该资源为仅导入模式，未生成总结/解读。',
@@ -1077,10 +1196,56 @@ const NotebookDetail: NextPage = () => {
                     {tx(`Delete (${selected.length})`, `删除（${selected.length}）`)}
                   </button>
                 )}
+                {canExportZip ? (
+                  <div ref={exportMenuRef} className="relative inline-flex">
+                    <div className="inline-flex overflow-hidden rounded border border-border-strong bg-white dark:border-white/20 dark:bg-black/20">
+                      <button
+                        onClick={handleExportNotebook}
+                        disabled={exportingZip || !canExportZip}
+                        title={tx('Export notebook', '导出笔记本')}
+                        className="cursor-pointer px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-white/90"
+                      >
+                        {exportingZip ? tx('Exporting...', '导出中...') : tx('Export', '导出')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExportMenuOpen((v) => !v)}
+                        className="cursor-pointer border-l border-border-strong px-1 text-text-main hover:bg-accent/10 dark:border-white/20 dark:text-white/90"
+                        aria-label={tx('Export options', '导出选项')}
+                        title={tx('Export options', '导出选项')}
+                      >
+                        <span className="material-symbols-outlined !text-[16px]">arrow_drop_down</span>
+                      </button>
+                    </div>
+                    {exportMenuOpen ? (
+                      <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-md border border-border-strong bg-card p-2 shadow-lg dark:border-white/20 dark:bg-[#1a1f35]">
+                        <label className="mb-2 flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
+                          <input
+                            type="checkbox"
+                            checked={exportIncludeInterpretation}
+                            onChange={(e) => setExportIncludeInterpretation(e.target.checked)}
+                            className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                          />
+                          <span>{tx('Deep interpretation', '深度解读')}</span>
+                        </label>
+                        <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
+                          <input
+                            type="checkbox"
+                            checked={exportIncludeSubtitle}
+                            onChange={(e) => setExportIncludeSubtitle(e.target.checked)}
+                            className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                          />
+                          <span>{tx('Subtitles', '字幕')}</span>
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <button
                   onClick={() => {
                     setShowImportModal(true)
                     setImportError('')
+                    setImportNotice('')
                     setUrlInput('')
                     setTextTitleInput('')
                     setTextBodyInput('')
@@ -1457,6 +1622,7 @@ const NotebookDetail: NextPage = () => {
                 <h3 className="text-lg font-semibold">Import resources</h3>
                 <button
                   className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
+                  disabled={loadingImport}
                   onClick={() => setShowImportModal(false)}
                 >
                   <span className="material-symbols-outlined">close</span>
@@ -1480,10 +1646,16 @@ const NotebookDetail: NextPage = () => {
                 </div>
                 {importTab === 'url' ? (
                   <>
+                    <div className="rounded-md border border-border-strong bg-white/60 px-3 py-2 text-xs text-text-muted dark:border-white/20 dark:bg-black/20 dark:text-white/60">
+                      {tx('Supported video sites:', '当前支持视频网站：')}{' '}
+                      <span className="font-semibold text-text-main dark:text-white">Bilibili</span> /{' '}
+                      <span className="font-semibold text-text-main dark:text-white">YouTube</span> /{' '}
+                      <span className="font-semibold text-text-main dark:text-white">Douyin</span>
+                    </div>
                     <textarea
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder={`Paste one or more video URLs (Bilibili / YouTube).\nSupported separators: new line, space, comma, semicolon.`}
+                      placeholder={`Paste one or more video URLs (Bilibili / YouTube / Douyin).\nSupported separators: new line, space, comma, semicolon.`}
                       rows={8}
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
@@ -1532,45 +1704,25 @@ const NotebookDetail: NextPage = () => {
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <div className="text-xs text-text-muted dark:text-white/50">
-                      Characters: {textBodyInput.trim().length}
+                      {tx('Characters', '字符数')}: {textBodyInput.trim().length} | UTF-8 bytes: {textByteLength}
                     </div>
+                    {textWillTruncate ? (
+                      <div className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                        {tx(
+                          `This text exceeds ${transcriptByteLimit.toLocaleString()} UTF-8 bytes. The extra part will be truncated before interpretation.`,
+                          `当前文本超过 ${transcriptByteLimit.toLocaleString()} UTF-8 字节，超出部分在解读前会被截断。`,
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {importTab === 'files' ? (
                   <div className="space-y-3">
-                    <label className="block cursor-pointer rounded-md border border-dashed border-border-strong bg-white/50 px-4 py-6 text-center text-sm text-text-muted hover:border-accent/50 dark:border-white/20 dark:bg-black/20 dark:text-white/60">
-                      <input
-                        type="file"
-                        className="hidden"
-                        multiple
-                        accept=".txt,.md,.srt,.vtt,.ass,.pdf,.docx"
-                        onChange={(e) => handlePickFiles(e.target.files)}
-                      />
-                      Click to select files (.txt/.md/.srt/.vtt/.ass/.pdf/.docx)
-                    </label>
-                    <div className="max-h-40 space-y-2 overflow-y-auto">
-                      {importFiles.map((f) => (
-                        <div
-                          key={f.id}
-                          className="dark:border-white/15 flex items-center justify-between rounded-md border border-border-strong bg-black/5 px-3 py-2 text-xs dark:bg-white/5"
-                        >
-                          <div className="min-w-0">
-                            <div className="truncate text-text-main dark:text-white">{f.name}</div>
-                            <div className="text-text-muted dark:text-white/50">
-                              {f.mimeType || 'Unknown'} · {(f.size / 1024).toFixed(1)} KB
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setImportFiles((prev) => prev.filter((x) => x.id !== f.id))}
-                            className="ml-3 rounded border border-red-500/30 px-2 py-1 text-red-500 hover:bg-red-500/10"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                      {importFiles.length === 0 ? (
-                        <div className="text-xs text-text-muted dark:text-white/50">No files selected yet.</div>
-                      ) : null}
+                    <div className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
+                      {tx(
+                        'File import is temporarily unavailable. Please use URL or Text for now.',
+                        '文件导入功能暂不支持，请先使用 URL 或 Text 导入。',
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -1612,15 +1764,39 @@ const NotebookDetail: NextPage = () => {
                   </div>
                 </div>
                 {importError && <p className="text-sm text-red-500 dark:text-red-400">{importError}</p>}
+                {importNotice && <p className="text-sm text-green-600 dark:text-green-400">{importNotice}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
                   Import runs in background. Text/file defaults to import-only; you can switch to concise or detailed
                   mode.
                 </p>
+                {importTab === 'url' ? (
+                  <p className="text-xs text-text-muted dark:text-white/50">
+                    {tx(
+                      'URL import currently supports Bilibili and YouTube only.',
+                      'URL 导入当前仅支持 Bilibili 和 YouTube。',
+                    )}
+                  </p>
+                ) : null}
+                <p className="text-xs text-text-muted dark:text-white/50">
+                  {importDailyLimit === null
+                    ? tx('Daily import limit: unlimited (Premium).', '每日导入上限：无限制（Premium）。')
+                    : tx(
+                        `Daily import limit: ${importDailyLimit} items (${tier.toUpperCase()}).`,
+                        `每日导入上限：${importDailyLimit} 条（${tier.toUpperCase()}）。`,
+                      )}
+                </p>
+                <p className="text-xs text-text-muted dark:text-white/50">
+                  {tx(
+                    `Long subtitles/text may be truncated before interpretation (current cap: ${transcriptByteLimit.toLocaleString()} UTF-8 bytes).`,
+                    `字幕或文本过长时会在解读前截断（当前上限：${transcriptByteLimit.toLocaleString()} UTF-8 字节）。`,
+                  )}
+                </p>
 
                 <div className="mt-4 flex justify-end gap-2">
                   <button
+                    disabled={loadingImport}
                     onClick={() => setShowImportModal(false)}
-                    className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 dark:border-white/20 dark:text-white"
+                    className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:text-white"
                   >
                     Cancel
                   </button>
@@ -1630,11 +1806,18 @@ const NotebookDetail: NextPage = () => {
                       loadingImport ||
                       (importTab === 'url' && !urlInput.trim()) ||
                       (importTab === 'text' && !textBodyInput.trim()) ||
-                      (importTab === 'files' && importFiles.length === 0)
+                      importTab === 'files'
                     }
                     className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary"
                   >
-                    {loadingImport ? 'Submitting...' : 'Start import'}
+                    {loadingImport ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="material-symbols-outlined animate-spin !text-[16px]">progress_activity</span>
+                        <span>Importing...</span>
+                      </span>
+                    ) : (
+                      'Start import'
+                    )}
                   </button>
                 </div>
               </div>

@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildBilibiliPreviewItems, isBilibiliUrl, splitInputUrls } from '~/lib/bilibili/preview'
 import { buildYouTubePreviewItems, isYouTubeUrl } from '~/lib/youtube/preview'
+import { buildDouyinPreviewItems, isDouyinUrl } from '~/lib/douyin/preview'
 import { runVideoImportInBackground } from '~/lib/import/processVideoImport'
-import { createImportBatch, createVideo, getAppSetting } from '~/lib/repo'
+import { countUserImportsToday, createImportBatch, createVideo, getAppSetting } from '~/lib/repo'
 import {
   DEFAULT_INTERPRETATION_MODE,
   DEFAULT_INTERPRETATION_MODE_SETTING_KEY,
@@ -11,14 +12,46 @@ import {
 } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
 import { isOwnershipError } from '~/lib/repo-errors'
-import { requireUserId } from '~/lib/requestAuth'
+import { isAdminUserId, requireUserId } from '~/lib/requestAuth'
 import { parseRequiredAppLanguage } from '~/lib/i18n'
+import { getActiveSubscriptionTierByUserId } from '~/lib/billing/repo'
+import { getDailyImportLimitByTier } from '~/lib/billing/entitlements'
 
 const MAX_BATCH_ITEMS = Number(process.env.MAX_IMPORT_BATCH_ITEMS || 200)
 type ImportExpandMode = 'current' | 'all'
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function tx(lang: 'zh-CN' | 'en-US', en: string, zh: string) {
+  return lang === 'zh-CN' ? zh : en
+}
+
+function mapDouyinPreviewError(reason: string, lang: 'zh-CN' | 'en-US') {
+  const raw = String(reason || '')
+  if (/fresh cookies/i.test(raw) || /requires fresh cookies/i.test(raw)) {
+    return tx(
+      lang,
+      'Douyin request was blocked by risk control. This can happen even with newly pasted cookies. Common causes: cookie freshness, IP/environment mismatch, or upstream extractor limitations. Go to Settings and reconfigure Douyin auth (cookies.txt recommended).',
+      '抖音请求被风控拦截，这在刚更新 Cookie 后也可能发生。常见原因包括：Cookie 新鲜度、IP/环境不一致，或上游解析器限制。请前往设置页重新配置抖音认证（推荐 cookies.txt）。',
+    )
+  }
+  if (/no douyin credential is configured/i.test(raw)) {
+    return tx(
+      lang,
+      'Douyin auth is not configured. Go to Settings and add Douyin cookie/cookies.txt first.',
+      '抖音认证尚未配置。请先前往设置页添加抖音 Cookie/cookies.txt。',
+    )
+  }
+  if (/could not be decrypted|invalid/i.test(raw) && /douyin/i.test(raw)) {
+    return tx(
+      lang,
+      'Saved Douyin auth is invalid. Go to Settings and save/validate it again.',
+      '已保存的抖音认证无效。请前往设置页重新保存并校验。',
+    )
+  }
+  return raw || tx(lang, 'Douyin URL parse failed', '抖音链接解析失败')
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -70,12 +103,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return
   }
 
-  const invalidUrls = parsedUrls.filter((u) => !isBilibiliUrl(u) && !isYouTubeUrl(u))
+  const invalidUrls = parsedUrls.filter((u) => !isBilibiliUrl(u) && !isYouTubeUrl(u) && !isDouyinUrl(u))
   const bilibiliUrls = parsedUrls.filter((u) => isBilibiliUrl(u))
   const youtubeUrls = parsedUrls.filter((u) => isYouTubeUrl(u))
+  const douyinUrls = parsedUrls.filter((u) => isDouyinUrl(u))
 
-  if (!bilibiliUrls.length && !youtubeUrls.length) {
-    res.status(400).json({ error: 'Only Bilibili or YouTube URLs are supported', invalidUrls })
+  if (!bilibiliUrls.length && !youtubeUrls.length && !douyinUrls.length) {
+    res.status(400).json({ error: 'Only Bilibili, YouTube, or Douyin URLs are supported', invalidUrls })
     return
   }
 
@@ -110,7 +144,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }),
       )
     ).flat()
-    const expandedItems = [...bilibiliItems, ...youtubeItems]
+    const douyinItems = (
+      await Promise.all(
+        douyinUrls.map(async (url) => {
+          try {
+            return await buildDouyinPreviewItems(userId, url, { expandMode: 'current' })
+          } catch (e: any) {
+            previewErrors.push({ url, reason: mapDouyinPreviewError(e?.message || '', targetLanguage) })
+            return []
+          }
+        }),
+      )
+    ).flat()
+    const expandedItems = [...bilibiliItems, ...youtubeItems, ...douyinItems]
 
     if (!expandedItems.length) {
       res.status(422).json({ error: 'No importable video items found', invalidUrls, previewErrors })
@@ -124,11 +170,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
+    const { tier } = await getActiveSubscriptionTierByUserId(userId)
+    const effectiveTier = isAdminUserId(userId) ? 'premium' : tier
+    const dailyLimit = getDailyImportLimitByTier(effectiveTier)
+    if (dailyLimit !== null) {
+      const importedToday = await countUserImportsToday(userId)
+      const projected = importedToday + expandedItems.length
+      if (projected > dailyLimit) {
+        const remaining = Math.max(0, dailyLimit - importedToday)
+        res.status(403).json({
+          error: `Daily import limit reached for ${effectiveTier} tier. Imported today: ${importedToday}/${dailyLimit}. Remaining today: ${remaining}.`,
+          tier: effectiveTier,
+          importedToday,
+          dailyLimit,
+          requested: expandedItems.length,
+          remaining,
+        })
+        return
+      }
+    }
+
     const batch = await createImportBatch(userId, notebookId, expandedItems.length)
 
     const createdItems = []
     for (const item of expandedItems) {
-      const sourceType = item.platform === VideoService.YouTube ? 'youtube' : 'bilibili'
+      const sourceType =
+        item.platform === VideoService.YouTube
+          ? 'youtube'
+          : item.platform === VideoService.Douyin
+          ? 'douyin'
+          : 'bilibili'
       const importVideoId =
         sourceType === 'bilibili' ? String(item.externalId || '').split('-p')[0] : String(item.externalId || '')
       const created = await createVideo(userId, {

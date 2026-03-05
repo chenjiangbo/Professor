@@ -3,16 +3,16 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import {
-  buildYouTubeAuthArgs,
-  getDecryptedYouTubeAuth,
-  getYouTubeAuthRecord,
-  updateYouTubeAuthValidation,
-  validateYouTubeAuthLocal,
-} from '~/lib/youtube/auth'
+  buildDouyinAuthArgs,
+  getDecryptedDouyinAuth,
+  getDouyinAuthRecord,
+  updateDouyinAuthValidation,
+  validateDouyinAuthLocal,
+} from '~/lib/douyin/auth'
 import { requireUserId } from '~/lib/requestAuth'
 import { runYtDlpJson } from '~/lib/youtube/ytdlp'
 
-const YOUTUBE_VALIDATE_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+const DOUYIN_VALIDATE_URL = 'https://www.douyin.com/video/7595190138609126265'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = requireUserId(req, res)
@@ -24,23 +24,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return
   }
 
-  const record = await getYouTubeAuthRecord(userId)
+  const record = await getDouyinAuthRecord(userId)
   if (!record) {
-    res.status(404).json({ error: 'YouTube credential is not configured' })
+    res.status(404).json({ error: 'Douyin credential is not configured' })
     return
   }
 
   try {
-    const auth = await getDecryptedYouTubeAuth(userId)
+    const auth = await getDecryptedDouyinAuth(userId)
     if (!auth) {
       res.status(422).json({ error: 'Credential decryption failed' })
       return
     }
 
-    const localValidation = validateYouTubeAuthLocal(auth)
+    const localValidation = validateDouyinAuthLocal(auth)
     if (!localValidation.valid) {
-      await updateYouTubeAuthValidation(userId, 'invalid', localValidation.message)
-      const latest = await getYouTubeAuthRecord(userId)
+      await updateDouyinAuthValidation(userId, 'invalid', localValidation.message)
+      const latest = await getDouyinAuthRecord(userId)
       res.status(200).json({
         ok: false,
         validation: localValidation,
@@ -51,11 +51,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return
     }
 
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yt-auth-validate-'))
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'douyin-auth-validate-'))
     let validation: { valid: boolean; message: string }
     try {
-      const authArgs = await buildYouTubeAuthArgs(userId, tempDir)
-      await runYtDlpJson([...authArgs, '--no-playlist', YOUTUBE_VALIDATE_URL], tempDir)
+      const authArgs = await buildDouyinAuthArgs(userId, tempDir)
+      await runYtDlpJson([...authArgs, '--no-playlist', DOUYIN_VALIDATE_URL], tempDir)
       validation = { valid: true, message: 'Remote validation passed via yt-dlp.' }
     } catch (e: any) {
       const message = String(e?.message || '')
@@ -67,12 +67,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
     }
 
-    await updateYouTubeAuthValidation(
+    await updateDouyinAuthValidation(
       userId,
       validation.valid ? 'valid' : 'invalid',
       validation.valid ? undefined : validation.message,
     )
-    const latest = await getYouTubeAuthRecord(userId)
+    const latest = await getDouyinAuthRecord(userId)
     res.status(200).json({
       ok: validation.valid,
       validation,

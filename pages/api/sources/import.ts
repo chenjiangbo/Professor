@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { randomUUID } from 'crypto'
-import { createImportBatch, createVideo, getAppSetting } from '~/lib/repo'
+import { countUserImportsToday, createImportBatch, createVideo, getAppSetting } from '~/lib/repo'
 import { runVideoImportInBackground } from '~/lib/import/processVideoImport'
 import { extractFileToSource } from '~/lib/source/extract'
 import {
@@ -11,8 +11,10 @@ import {
 } from '~/lib/interpretationMode'
 import { VideoService } from '~/lib/types'
 import { isOwnershipError } from '~/lib/repo-errors'
-import { requireUserId } from '~/lib/requestAuth'
+import { isAdminUserId, requireUserId } from '~/lib/requestAuth'
 import { parseRequiredAppLanguage } from '~/lib/i18n'
+import { getActiveSubscriptionTierByUserId } from '~/lib/billing/repo'
+import { getDailyImportLimitByTier } from '~/lib/billing/entitlements'
 
 type ImportItem =
   | { type: 'text'; title?: string; text: string }
@@ -85,6 +87,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     (await getAppSetting(userId, DEFAULT_INTERPRETATION_MODE_SETTING_KEY)) || DEFAULT_INTERPRETATION_MODE,
   )
   const selectedMode: InterpretationMode = normalizeInterpretationMode(interpretationMode || defaultMode)
+
+  const { tier } = await getActiveSubscriptionTierByUserId(userId)
+  const effectiveTier = isAdminUserId(userId) ? 'premium' : tier
+  const dailyLimit = getDailyImportLimitByTier(effectiveTier)
+  if (dailyLimit !== null) {
+    const importedToday = await countUserImportsToday(userId)
+    const projected = importedToday + items.length
+    if (projected > dailyLimit) {
+      const remaining = Math.max(0, dailyLimit - importedToday)
+      res.status(403).json({
+        error: `Daily import limit reached for ${effectiveTier} tier. Imported today: ${importedToday}/${dailyLimit}. Remaining today: ${remaining}.`,
+        tier: effectiveTier,
+        importedToday,
+        dailyLimit,
+        requested: items.length,
+        remaining,
+      })
+      return
+    }
+  }
 
   let batch
   try {

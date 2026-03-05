@@ -111,6 +111,19 @@ export async function listVideos(userId: string, notebookId: string, language?: 
   return rows
 }
 
+export async function countUserImportsToday(userId: string): Promise<number> {
+  const { rows } = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM videos v
+     JOIN notebooks n ON n.id = v.notebook_id
+     WHERE n.owner_user_id = $1
+       AND v.created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')
+       AND v.created_at < ((date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai') + interval '1 day') AT TIME ZONE 'Asia/Shanghai')`,
+    [userId],
+  )
+  return Number(rows[0]?.count || 0)
+}
+
 export async function createVideo(
   userId: string,
   data: {

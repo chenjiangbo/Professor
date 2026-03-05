@@ -54,6 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const sourceType = (String(current.source_type || '').toLowerCase() || 'bilibili') as
     | 'bilibili'
     | 'youtube'
+    | 'douyin'
     | 'text'
     | 'file'
   const transcript = String(current.transcript || '').trim()
@@ -70,14 +71,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     last_error: null,
   })
 
-  if (sourceType === 'bilibili' || sourceType === 'youtube') {
+  if (sourceType === 'bilibili' || sourceType === 'youtube' || sourceType === 'douyin') {
     runVideoImportInBackground({
       userId,
       dbVideoId: id,
       sourceType,
       videoId: bvid,
       sourceUrl,
-      service: sourceType === 'bilibili' ? VideoService.Bilibili : VideoService.YouTube,
+      service:
+        sourceType === 'bilibili'
+          ? VideoService.Bilibili
+          : sourceType === 'douyin'
+          ? VideoService.Douyin
+          : VideoService.YouTube,
       pageNumber,
       interpretationMode,
       contentLanguage: targetLanguage,

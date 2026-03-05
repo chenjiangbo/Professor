@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { buildBilibiliPreviewItems, isBilibiliUrl, resolveBilibiliUrl } from '~/lib/bilibili/preview'
 import { buildYouTubePreviewItems, isYouTubeUrl } from '~/lib/youtube/preview'
+import { buildDouyinPreviewItems, isDouyinUrl } from '~/lib/douyin/preview'
 import { requireUserId } from '~/lib/requestAuth'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -18,15 +19,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(400).json({ error: 'Missing required parameter: url' })
     return
   }
-  if (!isBilibiliUrl(url) && !isYouTubeUrl(url)) {
-    res.status(400).json({ error: 'Only Bilibili or YouTube URLs are supported' })
+  if (!isBilibiliUrl(url) && !isYouTubeUrl(url) && !isDouyinUrl(url)) {
+    res.status(400).json({ error: 'Only Bilibili, YouTube, or Douyin URLs are supported' })
     return
   }
 
   try {
     const items = isBilibiliUrl(url)
       ? await buildBilibiliPreviewItems(await resolveBilibiliUrl(url))
-      : await buildYouTubePreviewItems(userId, url)
+      : isYouTubeUrl(url)
+      ? await buildYouTubePreviewItems(userId, url)
+      : await buildDouyinPreviewItems(userId, url)
     res.status(200).json({
       items,
     })

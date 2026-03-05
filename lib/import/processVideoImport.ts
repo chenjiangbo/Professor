@@ -4,6 +4,7 @@ import { fetchSubtitleByBBDown } from '~/lib/subtitle/bbdown'
 import { fetchSubtitleByYtDlp } from '~/lib/subtitle/ytdlp'
 import { fetchBilibiliVideoMeta } from '~/lib/bilibili/fetchBilibiliVideoMeta'
 import { fetchYouTubeVideoMeta } from '~/lib/youtube/preview'
+import { fetchDouyinVideoMeta } from '~/lib/douyin/preview'
 import { generateVideoInterpretation } from '~/lib/openai/videoInterpretation'
 import { translateTranscriptToLanguage } from '~/lib/openai/translate'
 import { validateSubtitleQuality } from '~/lib/subtitle/quality'
@@ -16,6 +17,7 @@ import {
   validateBBDownAuthCookie,
 } from '~/lib/bbdown/auth'
 import { getDecryptedYouTubeAuth, getYouTubeAuthRecord, validateYouTubeAuthLocal } from '~/lib/youtube/auth'
+import { getDecryptedDouyinAuth, getDouyinAuthRecord, validateDouyinAuthLocal } from '~/lib/douyin/auth'
 
 export type ProcessVideoImportArgs = {
   userId: string
@@ -143,7 +145,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       return
     }
 
-    if (sourceType !== 'bilibili' && sourceType !== 'youtube') {
+    if (sourceType !== 'bilibili' && sourceType !== 'youtube' && sourceType !== 'douyin') {
       await syncVideoState({
         status: 'error',
         summary: `Import failed: unsupported source type "${sourceType}".`,
@@ -177,6 +179,15 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       } catch (e: any) {
         console.error('Failed to fetch youtube title metadata', e?.message || e)
       }
+    } else if (sourceType === 'douyin') {
+      try {
+        const meta = await fetchDouyinVideoMeta(userId, String(sourceUrl || ''))
+        if (meta?.title) {
+          title = meta.title
+        }
+      } catch (e: any) {
+        console.error('Failed to fetch douyin title metadata', e?.message || e)
+      }
     }
 
     try {
@@ -189,7 +200,7 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
             subtitle_source: bbdownSubtitle.isAi ? 'ai' : 'human',
           }
         }
-      } else if (sourceType === 'youtube') {
+      } else if (sourceType === 'youtube' || sourceType === 'douyin') {
         const ytdlpSubtitle = await fetchSubtitleByYtDlp(userId, String(sourceUrl || ''), targetLanguage)
         if (ytdlpSubtitle?.text) {
           transcript = ytdlpSubtitle.text
@@ -206,21 +217,35 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       if (!transcript && sourceType === 'youtube') {
         subtitleError = 'YouTube did not provide usable subtitle tracks, or yt-dlp did not output subtitle files.'
       }
+      if (!transcript && sourceType === 'douyin') {
+        subtitleError = 'Douyin did not provide usable subtitle tracks, or yt-dlp did not output subtitle files.'
+      }
     } catch (e: any) {
-      subtitleError = e?.message || (sourceType === 'bilibili' ? 'Unknown BBDown error' : 'Unknown yt-dlp error')
+      subtitleError =
+        e?.message ||
+        (sourceType === 'bilibili'
+          ? 'Unknown BBDown error'
+          : sourceType === 'douyin'
+          ? 'Unknown Douyin yt-dlp error'
+          : 'Unknown yt-dlp error')
       console.error(`${sourceType} subtitle fetch failed`, subtitleError)
     }
 
     if (!transcript) {
       const authIssueHint =
-        sourceType === 'bilibili' ? await getBBDownAuthIssueHint(userId) : await getYouTubeAuthIssueHint(userId)
+        sourceType === 'bilibili'
+          ? await getBBDownAuthIssueHint(userId)
+          : sourceType === 'douyin'
+          ? await getDouyinAuthIssueHint(userId)
+          : await getYouTubeAuthIssueHint(userId)
       const resolvedSubtitleError = [subtitleError || 'No usable subtitles available.', authIssueHint]
         .filter(Boolean)
         .join(' ')
       await syncVideoState({
         title: title || 'Untitled video',
         status: 'error',
-        subtitle_source: sourceType === 'bilibili' ? 'bbdown-only' : 'ytdlp-only',
+        subtitle_source:
+          sourceType === 'bilibili' ? 'bbdown-only' : sourceType === 'douyin' ? 'douyin-ytdlp-only' : 'ytdlp-only',
         summary: `Subtitle download failed: ${resolvedSubtitleError}`,
         last_error: resolvedSubtitleError,
       })
@@ -329,6 +354,28 @@ export async function processVideoImport(args: ProcessVideoImportArgs) {
       summary: `Import failed unexpectedly: ${e.message}`,
       last_error: e.message,
     })
+  }
+}
+
+async function getDouyinAuthIssueHint(userId: string): Promise<string> {
+  try {
+    const record = await getDouyinAuthRecord(userId)
+    if (!record) {
+      return 'No Douyin credential is configured. Go to Settings and add a valid Douyin cookie/cookies.txt.'
+    }
+
+    const auth = await getDecryptedDouyinAuth(userId)
+    if (!auth?.value) {
+      return 'Saved Douyin credential could not be decrypted. Go to Settings and save it again.'
+    }
+
+    const validation = validateDouyinAuthLocal(auth)
+    if (validation.valid) return ''
+    return `Saved Douyin credential is invalid (${validation.message}). Go to Settings and update it.`
+  } catch (e: any) {
+    return `Douyin credential state is abnormal (${
+      e?.message || 'unknown error'
+    }). Go to Settings and validate it again.`
   }
 }
 
