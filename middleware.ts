@@ -2,6 +2,7 @@ import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
 const API_PREFIX = '/api/'
+const INTERNAL_JOB_PREFIX = '/api/internal/jobs/'
 
 function getDevAuthMode(): string {
   return String(process.env.DEV_AUTH_MODE || '')
@@ -20,6 +21,20 @@ export function middleware(req: NextRequest) {
       { error: 'Invalid configuration: DEV_AUTH_MODE=mock is forbidden in production.' },
       { status: 500 },
     )
+  }
+
+  if (pathname.startsWith(INTERNAL_JOB_PREFIX)) {
+    const expectedToken = String(process.env.BILLING_JOB_TOKEN || '').trim()
+    if (!expectedToken) {
+      return NextResponse.json({ error: 'Missing required environment variable: BILLING_JOB_TOKEN' }, { status: 500 })
+    }
+
+    const token = String(req.headers.get('x-job-token') || '').trim()
+    if (!token || token !== expectedToken) {
+      return NextResponse.json({ error: 'Unauthorized job request' }, { status: 401 })
+    }
+
+    return NextResponse.next()
   }
 
   const userId = req.headers.get('x-user-id')
