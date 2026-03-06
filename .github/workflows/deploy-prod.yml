@@ -43,6 +43,6 @@ jobs:
             git checkout -f -B main origin/main
             git reset --hard origin/main
 
-            docker compose -f docker-compose.prod.yml build professor
-            docker compose -f docker-compose.prod.yml up -d professor
+            docker compose -f docker-compose.prod.yml build professor professor-billing-worker
+            docker compose -f docker-compose.prod.yml up -d professor professor-billing-worker
             docker image prune -f --filter "until=168h"
