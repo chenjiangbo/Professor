@@ -95,10 +95,31 @@ function buildSignContent(params: Record<string, string>): string {
 }
 
 function signWithRsa2(content: string, privateKey: string): string {
-  const signer = createSign('RSA-SHA256')
-  signer.update(content, 'utf8')
-  signer.end()
-  return signer.sign(privateKey, 'base64')
+  const trySign = (key: string) => {
+    const signer = createSign('RSA-SHA256')
+    signer.update(content, 'utf8')
+    signer.end()
+    return signer.sign(key, 'base64')
+  }
+
+  try {
+    return trySign(privateKey)
+  } catch (error) {
+    // Alipay console may provide a raw PKCS#1 key; support both PKCS#8 and PKCS#1 PEM labels.
+    if (privateKey.includes('BEGIN PRIVATE KEY')) {
+      const pkcs1Key = privateKey
+        .replace('BEGIN PRIVATE KEY', 'BEGIN RSA PRIVATE KEY')
+        .replace('END PRIVATE KEY', 'END RSA PRIVATE KEY')
+      return trySign(pkcs1Key)
+    }
+    if (privateKey.includes('BEGIN RSA PRIVATE KEY')) {
+      const pkcs8Key = privateKey
+        .replace('BEGIN RSA PRIVATE KEY', 'BEGIN PRIVATE KEY')
+        .replace('END RSA PRIVATE KEY', 'END PRIVATE KEY')
+      return trySign(pkcs8Key)
+    }
+    throw error
+  }
 }
 
 function verifyWithRsa2(content: string, signature: string, publicKey: string): boolean {
@@ -159,6 +180,18 @@ async function postToAlipay<T>(
   const methodResponse = payload[responseKey]
   if (!methodResponse || typeof methodResponse !== 'object') {
     throw new Error(`Alipay response missing ${responseKey}`)
+  }
+  const responseCode =
+    typeof (methodResponse as Record<string, unknown>).code === 'string'
+      ? String((methodResponse as Record<string, unknown>).code)
+      : ''
+  if (responseCode !== '10000') {
+    console.error('[alipay] api error response', {
+      method,
+      gateway: config.gateway,
+      response: methodResponse,
+      raw_payload: payload,
+    })
   }
   return methodResponse as T
 }
@@ -222,7 +255,9 @@ export function parseNotifyPayload(body: unknown): AlipayNotifyPayload {
 
 export function verifyNotifySignature(payload: AlipayNotifyPayload): boolean {
   const config = getAlipayConfig()
-  const signature = payload.sign
+  const signature = String(payload.sign || '')
+    .trim()
+    .replace(/ /g, '+')
   if (!signature) {
     throw new Error('Notify payload missing sign')
   }
@@ -235,6 +270,16 @@ export function verifyNotifySignature(payload: AlipayNotifyPayload): boolean {
 
   const signContent = buildSignContent(signSource)
   return verifyWithRsa2(signContent, signature, config.publicKey)
+}
+
+export function validateNotifyApp(payload: AlipayNotifyPayload) {
+  const config = getAlipayConfig()
+  if (!payload.app_id) {
+    throw new Error('Notify payload missing app_id')
+  }
+  if (payload.app_id !== config.appId) {
+    throw new Error('app_id mismatch')
+  }
 }
 
 export function validateNotifyReceiver(payload: AlipayNotifyPayload) {

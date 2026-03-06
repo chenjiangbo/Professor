@@ -250,10 +250,68 @@ async function generateFullArticle(
   language: AppLanguage,
 ): Promise<string> {
   const isDetailed = mode === 'detailed'
+  const isExtract = mode === 'extract'
   const chinese = isChineseLanguage(language)
   let retryHint = ''
-  const buildPrompt = (retryHint?: string) =>
-    [
+  const buildPrompt = (retryHint?: string) => {
+    if (isExtract) {
+      return [
+        chinese
+          ? '你是一位“知识提取专家”，不是专栏作家。'
+          : 'You are a “knowledge extraction expert,” not a columnist.',
+        chinese ? `视频标题：${title}` : `Video title: ${title}`,
+        '',
+        chinese
+          ? '任务目标：基于“待覆盖的大纲议题（POINTS）”和“原始转录”，输出“极简知识提取稿”，用于快速学习。'
+          : 'Goal: Using the mandatory POINTS and raw transcript, produce an ultra-concise extraction draft for fast learning.',
+        '',
+        chinese ? '核心原则（必须遵守）：' : 'Hard rules:',
+        chinese
+          ? '1) 覆盖完整：必须覆盖所有 POINTS，不遗漏核心信息。'
+          : '1) Full coverage: cover every POINT; do not miss core content.',
+        chinese
+          ? '2) 表达极简：每个知识点只用 1-2 句话解释清楚。'
+          : '2) Extreme brevity: explain each point in 1-2 short sentences only.',
+        chinese
+          ? '3) 大白话：用通俗语言，避免术语堆砌；若有术语，先翻成易懂说法。'
+          : '3) Plain language: keep it simple; if a term is technical, immediately paraphrase it.',
+        chinese
+          ? '4) 不写文章：禁止寒暄、禁止开场白、禁止修辞铺陈、禁止人物引用、禁止金句风格。'
+          : '4) No prose style: no greetings, no narrative opening, no rhetorical flourish, no named-person quotes.',
+        chinese
+          ? '5) 不扩写：不要引入与原文无关的外部背景，不做长段推演。'
+          : '5) No unrelated expansion: do not inject external background unrelated to the transcript.',
+        '',
+        chinese ? '输出格式（严格）：' : 'Output format (strict):',
+        chinese ? '- 第一行必须是：## 核心知识点' : '- First line must be: ## Key Knowledge Points',
+        chinese
+          ? '- 之后按以下结构逐条输出（每个 POINTS 对应一条）：'
+          : '- Then for each POINT, use the structure below (one item per POINT):',
+        chinese ? '### {序号}. {知识点标题}' : '### {index}. {point title}',
+        chinese ? '这点在说什么：{1句大白话，必要时最多2句}' : 'What it means: {1 plain sentence, at most 2}',
+        chinese ? '为什么重要：{0-1句，可省略；若写，必须通俗}' : 'Why it matters: {0-1 plain sentence, optional}',
+        '',
+        chinese ? '长度约束（严格）：' : 'Length limits (strict):',
+        chinese
+          ? '- “这点在说什么”单行建议 18-45 个汉字，最多不超过 60 个汉字。'
+          : '- “What it means” should be short (about 10-22 words, hard max 30).',
+        chinese
+          ? '- “为什么重要”单行建议 12-35 个汉字，最多不超过 50 个汉字。'
+          : '- “Why it matters” should be short (about 8-18 words, hard max 25).',
+        chinese ? '- 每个知识点总共最多 2 句（不含标题行）。' : '- Max 2 sentences per point (excluding heading line).',
+        retryHint || '',
+        '',
+        chinese ? '待覆盖的大纲议题（POINTS）：' : 'Mandatory POINTS to cover:',
+        ...coveragePoints.map((p, i) => `${i + 1}. ${p}`),
+        '',
+        chinese ? '原始转录：' : 'Raw transcript:',
+        transcript,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    }
+
+    return [
       chinese
         ? '你是一位科技与人文领域的顶级专栏作家。请基于提供的大纲和原始转录，撰写一篇深度、犀利且可读性极强的解读文章。'
         : 'You are a top-tier columnist in technology and humanities. Write a sharp, deep, and highly readable interpretation based on the outline and raw transcript.',
@@ -264,8 +322,8 @@ async function generateFullArticle(
         ? '1) 拒绝平庸的“助教风”：不要写成枯燥摘要或说明书，文章要有观点、有温度、有呼吸感。'
         : '1) Cover all key information points; do not miss core content.',
       chinese
-        ? '2) 像 Naval 一样思考：保留原文中的精彩比喻和反直觉洞察，独特术语要保留并解释。'
-        : '2) Keep signature insights: preserve sharp metaphors, contrarian ideas, and explain unique terms instead of flattening them.',
+        ? '2) 保留原文中的精彩比喻和反直觉洞察，独特术语要保留并解释；不要引入与原文无关的外部人物引用。'
+        : '2) Keep signature insights: preserve sharp metaphors, contrarian ideas, and explain unique terms instead of flattening them; do not inject unrelated external-person references.',
       chinese
         ? '3) 流畅自然：段落间要有逻辑过渡，避免机械堆砌信息。'
         : '3) Keep natural flow: smooth transitions, no mechanical bullet-dump writing.',
@@ -309,6 +367,7 @@ async function generateFullArticle(
     ]
       .filter(Boolean)
       .join('\n')
+  }
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -316,8 +375,8 @@ async function generateFullArticle(
         generateText({
           model,
           prompt: buildPrompt(attempt > 0 ? retryHint : ''),
-          temperature: 0.4,
-          maxOutputTokens: isDetailed ? 15000 : 8000,
+          temperature: isExtract ? 0.25 : 0.4,
+          maxOutputTokens: isDetailed ? 15000 : isExtract ? 9000 : 8000,
           maxRetries: 0,
         }),
       )
@@ -368,8 +427,8 @@ function validateArticleStructure(article: string, mode: InterpretationMode, lan
   }
 
   const headingCount = (String(article || '').match(/^##\s+\S+/gm) || []).length
-  const min = mode === 'detailed' ? 6 : 4
-  const max = mode === 'detailed' ? 10 : 6
+  const min = mode === 'detailed' ? 6 : mode === 'extract' ? 6 : 4
+  const max = mode === 'detailed' ? 10 : mode === 'extract' ? 12 : 6
   if (headingCount < min) {
     return chinese
       ? `重试：上一次只生成了 ${headingCount} 个章节，少于最少 ${min} 个的要求。请补全章节并严格控制在 ${min}-${max} 个之间。`

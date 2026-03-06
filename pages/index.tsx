@@ -75,7 +75,7 @@ const COPY: Record<'zh-CN' | 'en-US', Copy> = {
     monthlyLabel: '按月',
     yearlyLabel: '按年（更优惠）',
     pricingCta: '立即开通',
-    pricingMockNote: '支付功能开发中，当前为展示版。',
+    pricingMockNote: '点击“立即开通”进入支付页。',
   },
   'en-US': {
     navFeatures: 'Features',
@@ -124,7 +124,7 @@ const COPY: Record<'zh-CN' | 'en-US', Copy> = {
     monthlyLabel: 'Monthly',
     yearlyLabel: 'Yearly (save more)',
     pricingCta: 'Choose Plan',
-    pricingMockNote: 'Payment is under development. This is a preview.',
+    pricingMockNote: 'Click "Choose Plan" to continue to checkout.',
   },
 }
 
@@ -524,13 +524,18 @@ export default function Home() {
                       </li>
                     ))}
                   </ul>
-                  <button className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800">
+                  <Link
+                    href="/shop"
+                    className="mt-5 inline-flex h-10 w-full items-center justify-center rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
                     {copy.pricingCta}
-                  </button>
+                  </Link>
                 </div>
               ))}
             </div>
-            <p className="mt-4 text-center text-xs text-slate-500">{copy.pricingMockNote}</p>
+            {copy.pricingMockNote ? (
+              <p className="mt-4 text-center text-xs text-slate-500">{copy.pricingMockNote}</p>
+            ) : null}
           </section>
         </main>
       </div>

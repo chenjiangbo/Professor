@@ -20,6 +20,28 @@ services:
     networks:
       - xipi-network
 
+  professor-billing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        IS_USED_SENTRY: 0
+    container_name: professor-billing-worker
+    restart: unless-stopped
+    command: npm run worker:billing
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      INTERNAL_JOB_BASE_URL: http://professor:3000
+      GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+    volumes:
+      - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
+    depends_on:
+      - professor
+    networks:
+      - xipi-network
+
 networks:
   xipi-network:
     external: true

@@ -37,7 +37,9 @@ const SettingsPage: NextPage = () => {
   const [dySaving, setDySaving] = useState(false)
   const [dyValidating, setDyValidating] = useState(false)
   const [dyMessage, setDyMessage] = useState('')
-  const [defaultInterpretationMode, setDefaultInterpretationMode] = useState<'concise' | 'detailed'>('concise')
+  const [defaultInterpretationMode, setDefaultInterpretationMode] = useState<'concise' | 'detailed' | 'extract'>(
+    'concise',
+  )
 
   const loadAuthState = async () => {
     setLoading(true)
@@ -65,11 +67,9 @@ const SettingsPage: NextPage = () => {
     try {
       const res = await fetch('/api/settings/interpretation-mode')
       const json = await res.json()
-      if (json?.mode === 'detailed') {
-        setDefaultInterpretationMode('detailed')
-      } else {
-        setDefaultInterpretationMode('concise')
-      }
+      if (json?.mode === 'detailed') setDefaultInterpretationMode('detailed')
+      else if (json?.mode === 'extract') setDefaultInterpretationMode('extract')
+      else setDefaultInterpretationMode('concise')
     } catch {
       setDefaultInterpretationMode('concise')
     }
@@ -80,7 +80,11 @@ const SettingsPage: NextPage = () => {
       const res = await fetch('/api/settings/youtube-auth')
       const json = await res.json()
       setYtAuthState(json)
-      setYtMode(json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie')
+      setYtMode((prev) => {
+        // Only initialize from server on first load; do not override user's current editor selection.
+        if (ytAuthState !== null) return prev
+        return json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie'
+      })
     } catch {
       setYtAuthState({ configured: false })
     }
@@ -91,7 +95,11 @@ const SettingsPage: NextPage = () => {
       const res = await fetch('/api/settings/douyin-auth')
       const json = await res.json()
       setDyAuthState(json)
-      setDyMode(json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie')
+      setDyMode((prev) => {
+        // Only initialize from server on first load; do not override user's current editor selection.
+        if (dyAuthState !== null) return prev
+        return json?.mode === 'cookies_txt' ? 'cookies_txt' : 'cookie'
+      })
     } catch {
       setDyAuthState({ configured: false })
     }
@@ -553,6 +561,26 @@ const SettingsPage: NextPage = () => {
                               {tx(
                                 'Preserve more details and reasoning chain, suitable for deep study.',
                                 '保留更多细节与推理链，适合深度学习。',
+                              )}
+                            </p>
+                          </div>
+                        </label>
+                        <label className="has-[:checked]:border-accent has-[:checked]:bg-accent/10 dark:has-[:checked]:border-primary dark:has-[:checked]:bg-primary/10 flex cursor-pointer items-start gap-4 rounded-lg border border-border-strong p-[15px] transition-colors dark:border-white/20">
+                          <input
+                            type="radio"
+                            name="summary-mode"
+                            className="mt-1 h-5 w-5 shrink-0 appearance-none rounded-full border-2 border-border-strong bg-transparent text-transparent checked:border-accent checked:bg-accent checked:bg-[image:--radio-dot-svg] focus:outline-none focus:ring-2 focus:ring-accent/40 focus:ring-offset-2 focus:ring-offset-surface checked:focus:border-accent dark:border-white/30 dark:checked:border-primary dark:checked:bg-primary dark:focus:ring-primary/50 dark:focus:ring-offset-background-dark dark:checked:focus:border-primary"
+                            checked={defaultInterpretationMode === 'extract'}
+                            onChange={() => setDefaultInterpretationMode('extract')}
+                          />
+                          <div className="flex grow flex-col">
+                            <p className="text-sm font-medium leading-normal text-text-main dark:text-white">
+                              {tx('Extract (Minimal)', '极简知识提炼')}
+                            </p>
+                            <p className="text-sm font-normal leading-normal text-text-muted dark:text-gray-400">
+                              {tx(
+                                'Minimal knowledge distillation: keep only the key points in plain language.',
+                                '极简知识提炼：只保留关键知识点，并用大白话说明。',
                               )}
                             </p>
                           </div>

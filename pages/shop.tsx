@@ -267,6 +267,7 @@ export default function ShopPage() {
   }
 
   function openPaymentModal() {
+    if (showPaymentModal || creatingOrder) return
     setShowPaymentModal(true)
     void createPayment()
   }
@@ -378,6 +379,7 @@ export default function ShopPage() {
               <button
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-border-strong bg-white px-6 text-sm font-bold text-text-main transition-colors hover:bg-slate-50 dark:border-white/20 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
                 onClick={openPaymentModal}
+                disabled={showPaymentModal || creatingOrder}
               >
                 <span className="material-symbols-outlined text-[18px]">play_circle</span>
                 {copy.ctaSecondary}
@@ -408,7 +410,8 @@ export default function ShopPage() {
               </ul>
               <button
                 onClick={openPaymentModal}
-                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white transition-colors hover:bg-primary/90"
+                disabled={showPaymentModal || creatingOrder}
+                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-xl bg-primary px-4 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {copy.pricingCta}
               </button>
@@ -459,8 +462,9 @@ export default function ShopPage() {
                     )}
                     {!paid && orderStatus === 'EXPIRED' && (
                       <button
+                        disabled={creatingOrder}
                         onClick={() => void createPayment()}
-                        className="mt-1 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90"
+                        className="mt-1 inline-flex h-9 items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {copy.paymentRefresh}
                       </button>

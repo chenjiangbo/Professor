@@ -61,7 +61,7 @@ type ImportBatchItem = {
 }
 
 type ImportExpandMode = 'current' | 'all'
-type InterpretationMode = 'concise' | 'detailed' | 'none'
+type InterpretationMode = 'concise' | 'detailed' | 'extract' | 'none'
 type MainTab = 'learn' | 'subtitle' | 'notes'
 type ImportTab = 'url' | 'text' | 'files'
 type ImportLocalFile = {
@@ -230,6 +230,12 @@ function getInterpretationModeMeta(mode?: InterpretationMode) {
       badge:
         'border border-indigo-300 bg-indigo-100 text-indigo-900 dark:border-indigo-300/50 dark:bg-indigo-500/30 dark:text-indigo-50',
     }
+  if (mode === 'extract')
+    return {
+      label: 'Extract',
+      badge:
+        'border border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-300/50 dark:bg-emerald-500/30 dark:text-emerald-50',
+    }
   if (mode === 'none')
     return {
       label: 'Import only',
@@ -397,7 +403,7 @@ const NotebookDetail: NextPage = () => {
 
   useEffect(() => {
     const mode = defaultInterpretationModeData?.mode
-    if (mode === 'detailed' || mode === 'concise' || mode === 'none') {
+    if (mode === 'detailed' || mode === 'concise' || mode === 'extract' || mode === 'none') {
       setImportInterpretationMode(mode)
     }
   }, [defaultInterpretationModeData?.mode])
@@ -408,7 +414,9 @@ const NotebookDetail: NextPage = () => {
       return
     }
     const mode = defaultInterpretationModeData?.mode
-    setImportInterpretationMode(mode === 'detailed' ? 'detailed' : mode === 'none' ? 'none' : 'concise')
+    setImportInterpretationMode(
+      mode === 'detailed' ? 'detailed' : mode === 'extract' ? 'extract' : mode === 'none' ? 'none' : 'concise',
+    )
   }, [importTab, defaultInterpretationModeData?.mode])
 
   const filteredVideos = useMemo(() => {
@@ -583,13 +591,9 @@ const NotebookDetail: NextPage = () => {
         )
       }
       setLastBatchId(json.batchId)
-      setImportNotice(
-        tx(
-          'Import task submitted. It is processing in background; close this window after items appear in the source list.',
-          '导入任务已提交，正在后台处理；等左侧资源列表出现条目后再关闭窗口。',
-        ),
-      )
+      setImportNotice(tx('Import task submitted and running in background.', '导入任务已提交，正在后台处理。'))
       mutate()
+      setShowImportModal(false)
     } catch (e: any) {
       setImportError(e?.message || tx('Import failed', '导入失败'))
     } finally {
@@ -652,7 +656,7 @@ const NotebookDetail: NextPage = () => {
     )
   }
 
-  const handleReimportCurrent = async (mode: 'concise' | 'detailed') => {
+  const handleReimportCurrent = async (mode: 'concise' | 'detailed' | 'extract') => {
     if (!activeVideoId) return
     setReimportingVideoId(activeVideoId)
     try {
@@ -710,6 +714,18 @@ const NotebookDetail: NextPage = () => {
           >
             <span className="material-symbols-outlined !text-[16px]">match_case</span>
             <span>Re-import · Detailed</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              const details = e.currentTarget.closest('details') as HTMLDetailsElement | null
+              if (details) details.open = false
+              handleReimportCurrent('extract')
+            }}
+            className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-text-main hover:bg-blue-500/10 dark:text-white"
+          >
+            <span className="material-symbols-outlined !text-[16px]">facts</span>
+            <span>Re-import · Extract (Minimal)</span>
           </button>
         </div>
       </details>
@@ -1255,6 +1271,8 @@ const NotebookDetail: NextPage = () => {
                     setImportInterpretationMode(
                       defaultInterpretationModeData?.mode === 'detailed'
                         ? 'detailed'
+                        : defaultInterpretationModeData?.mode === 'extract'
+                        ? 'extract'
                         : defaultInterpretationModeData?.mode === 'none'
                         ? 'none'
                         : 'concise',
@@ -1617,7 +1635,7 @@ const NotebookDetail: NextPage = () => {
 
         {showImportModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
-            <div className="w-full max-w-2xl rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
+            <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">Import resources</h3>
                 <button
@@ -1628,7 +1646,7 @@ const NotebookDetail: NextPage = () => {
                   <span className="material-symbols-outlined">close</span>
                 </button>
               </div>
-              <div className="mt-4 space-y-4">
+              <div className="mt-4 space-y-4 overflow-y-auto pr-1">
                 <div className="flex items-center gap-2 text-xs">
                   {(['url', 'text', 'files'] as ImportTab[]).map((tab) => (
                     <button
@@ -1761,13 +1779,23 @@ const NotebookDetail: NextPage = () => {
                       />
                       <span>Detailed (keeps more details)</span>
                     </label>
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="radio"
+                        name="interpretationMode"
+                        value="extract"
+                        checked={importInterpretationMode === 'extract'}
+                        onChange={() => setImportInterpretationMode('extract')}
+                      />
+                      <span>Extract (minimal knowledge distillation)</span>
+                    </label>
                   </div>
                 </div>
                 {importError && <p className="text-sm text-red-500 dark:text-red-400">{importError}</p>}
                 {importNotice && <p className="text-sm text-green-600 dark:text-green-400">{importNotice}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
-                  Import runs in background. Text/file defaults to import-only; you can switch to concise or detailed
-                  mode.
+                  Import runs in background. Text/file defaults to import-only; you can switch to concise, detailed, or
+                  extract mode.
                 </p>
                 {importTab === 'url' ? (
                   <p className="text-xs text-text-muted dark:text-white/50">

@@ -13,6 +13,12 @@ type CreateOrderInput = {
   subject: string
 }
 
+type ListUserUnpaidOrdersInput = {
+  userId: string
+  productCode: string
+  planId: string
+}
+
 type MarkPaidInput = {
   outTradeNo: string
   alipayTradeNo: string
@@ -198,6 +204,17 @@ export async function closeBillingOrderByOutTradeNo(outTradeNo: string, reason: 
   return rows[0] || null
 }
 
+export async function failBillingOrderByOutTradeNo(outTradeNo: string, reason: string) {
+  const { rows } = await pool.query(
+    `UPDATE billing_orders
+     SET status='FAILED', close_reason=$2, updated_at=now()
+     WHERE out_trade_no=$1 AND status IN ('CREATED','QR_SENT')
+     RETURNING *`,
+    [outTradeNo, reason],
+  )
+  return rows[0] || null
+}
+
 export async function expireBillingOrderByOutTradeNo(outTradeNo: string, reason: string) {
   const { rows } = await pool.query(
     `UPDATE billing_orders
@@ -217,6 +234,20 @@ export async function listPendingBillingOrders(limit = 50) {
      ORDER BY created_at ASC
      LIMIT $1`,
     [limit, PROFESSOR_PRODUCT_CODE],
+  )
+  return rows
+}
+
+export async function listUserUnpaidBillingOrders(input: ListUserUnpaidOrdersInput) {
+  const { rows } = await pool.query(
+    `SELECT *
+     FROM billing_orders
+     WHERE user_id=$1
+       AND product_code=$2
+       AND plan_id=$3
+       AND status IN ('CREATED','QR_SENT')
+     ORDER BY created_at DESC`,
+    [input.userId, input.productCode, input.planId],
   )
   return rows
 }

@@ -1,6 +1,29 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { markBillingOrderPaidAndActivateSubscription } from '~/lib/billing/repo'
-import { parseNotifyPayload, validateNotifyReceiver, verifyNotifySignature } from '~/lib/billing/alipay'
+import {
+  parseNotifyPayload,
+  validateNotifyApp,
+  validateNotifyReceiver,
+  verifyNotifySignature,
+} from '~/lib/billing/alipay'
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+}
+
+async function readRawBody(req: NextApiRequest): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    let data = ''
+    req.setEncoding('utf8')
+    req.on('data', (chunk) => {
+      data += String(chunk)
+    })
+    req.on('end', () => resolve(data))
+    req.on('error', reject)
+  })
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -10,13 +33,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const payload = parseNotifyPayload(req.body)
+    const rawBody = await readRawBody(req)
+    const payload = parseNotifyPayload(rawBody)
 
     const verified = verifyNotifySignature(payload)
     if (!verified) {
       throw new Error('Notify signature verification failed')
     }
 
+    validateNotifyApp(payload)
     validateNotifyReceiver(payload)
 
     const outTradeNo = payload.out_trade_no

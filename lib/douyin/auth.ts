@@ -189,5 +189,33 @@ export async function buildDouyinAuthArgs(userId: string, tempDir: string): Prom
     return ['--cookies', cookiesPath]
   }
 
-  return ['--add-headers', `Cookie: ${auth.value}`]
+  await fs.writeFile(cookiesPath, cookieHeaderToNetscape(auth.value), 'utf8')
+  return ['--cookies', cookiesPath]
+}
+
+function cookieHeaderToNetscape(cookieHeader: string): string {
+  const pairs = String(cookieHeader || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const idx = part.indexOf('=')
+      if (idx < 1) return null
+      return {
+        name: part.slice(0, idx).trim(),
+        value: part.slice(idx + 1).trim(),
+      }
+    })
+    .filter(Boolean) as Array<{ name: string; value: string }>
+
+  const domains = ['.douyin.com', '.iesdouyin.com']
+  const lines = ['# Netscape HTTP Cookie File']
+  for (const pair of pairs) {
+    if (!pair.name || !pair.value) continue
+    const secure = pair.name.startsWith('__Secure-') || pair.name.startsWith('__Host-') ? 'TRUE' : 'FALSE'
+    for (const domain of domains) {
+      lines.push(`${domain}\tTRUE\t/\t${secure}\t0\t${pair.name}\t${pair.value}`)
+    }
+  }
+  return `${lines.join('\n')}\n`
 }

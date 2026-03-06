@@ -43,7 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return
   }
   const requestedMode =
-    rawRequestedMode === 'concise' || rawRequestedMode === 'detailed' || rawRequestedMode === 'none'
+    rawRequestedMode === 'concise' ||
+    rawRequestedMode === 'detailed' ||
+    rawRequestedMode === 'extract' ||
+    rawRequestedMode === 'none'
       ? normalizeInterpretationMode(rawRequestedMode)
       : null
   const sourceUrl = String(current.source_url || '')

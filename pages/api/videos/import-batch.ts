@@ -81,9 +81,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     interpretationMode &&
     interpretationMode !== 'concise' &&
     interpretationMode !== 'detailed' &&
+    interpretationMode !== 'extract' &&
     interpretationMode !== 'none'
   ) {
-    res.status(400).json({ error: 'interpretationMode must be "concise", "detailed", or "none"' })
+    res.status(400).json({ error: 'interpretationMode must be "concise", "detailed", "extract", or "none"' })
     return
   }
   let targetLanguage: 'zh-CN' | 'en-US'
