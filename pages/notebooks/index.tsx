@@ -2,7 +2,7 @@ import Head from 'next/head'
 import { NextPage } from 'next'
 import useSWR from 'swr'
 import { useRouter } from 'next/router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ModeToggle } from '~/components/mode-toggle'
 import LanguageSwitcher from '~/components/LanguageSwitcher'
 import { useAppLanguage } from '~/hooks/useAppLanguage'
@@ -39,12 +39,19 @@ const fetcher = async (url: string) => {
 
 const meFetcher = async (url: string): Promise<MePayload | null> => {
   const res = await fetch(url)
-  const data = await res.json()
+  if (res.status === 401) {
+    const err = new Error('Unauthorized') as Error & { status?: number }
+    err.status = 401
+    throw err
+  }
+  const data = await res.json().catch(() => null)
   if (!res.ok) {
-    return null
+    const err = new Error(`auth/me failed: ${res.status}`) as Error & { status?: number }
+    err.status = res.status
+    throw err
   }
   if (!data?.user_id || !data?.tier) {
-    return null
+    throw new Error('Invalid auth/me payload')
   }
   return data as MePayload
 }
@@ -52,7 +59,10 @@ const meFetcher = async (url: string): Promise<MePayload | null> => {
 const Home: NextPage = () => {
   const router = useRouter()
   const { data: notebooks, mutate } = useSWR<Notebook[]>('/api/notebooks', fetcher)
-  const { data: me } = useSWR<MePayload | null>('/api/auth/me', meFetcher)
+  const { data: me, error: meError } = useSWR<MePayload | null>('/api/auth/me', meFetcher, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  })
   const { language, setLanguage } = useAppLanguage()
   const isZh = language === 'zh-CN'
   const tx = (en: string, zh: string) => (isZh ? zh : en)
@@ -115,6 +125,14 @@ const Home: NextPage = () => {
     mutate((prev) => (Array.isArray(prev) ? prev.filter((nb) => nb.id !== id) : []), false)
     mutate()
   }
+
+  useEffect(() => {
+    const status = Number((meError as { status?: number } | undefined)?.status || 0)
+    if (!router.isReady || status !== 401) return
+    const redirectUrl =
+      typeof window !== 'undefined' ? window.location.href : 'https://professor.xipilabs.com/notebooks'
+    window.location.href = `https://www.xipilabs.com/login?redirect_url=${encodeURIComponent(redirectUrl)}`
+  }, [meError, router.isReady])
 
   return (
     <>
