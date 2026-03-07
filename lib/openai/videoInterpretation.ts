@@ -414,7 +414,8 @@ async function generateFullArticle(
 
 function validateArticleStructure(article: string, mode: InterpretationMode, language: AppLanguage): string {
   const chinese = isChineseLanguage(language)
-  const firstNonEmpty = String(article || '')
+  const normalizedArticle = String(article || '').replace(/\r/g, '')
+  const firstNonEmpty = normalizedArticle
     .replace(/\r/g, '')
     .split('\n')
     .map((line) => line.trim())
@@ -426,26 +427,69 @@ function validateArticleStructure(article: string, mode: InterpretationMode, lan
       : 'Retry: format error. The first line did not start with a level-2 heading. Start strictly with ## Heading and output nothing before it.'
   }
 
-  const headingCount = (String(article || '').match(/^##\s+\S+/gm) || []).length
+  const headingCount =
+    mode === 'extract'
+      ? (normalizedArticle.match(/^###\s+\S+/gm) || []).length
+      : (normalizedArticle.match(/^##\s+\S+/gm) || []).length
   const min = mode === 'detailed' ? 6 : mode === 'extract' ? 6 : 4
   const max = mode === 'detailed' ? 10 : mode === 'extract' ? 12 : 6
+  const headingLabel = chinese
+    ? mode === 'extract'
+      ? '知识点'
+      : '章节'
+    : mode === 'extract'
+    ? 'knowledge points'
+    : 'sections'
   if (headingCount < min) {
     return chinese
-      ? `重试：上一次只生成了 ${headingCount} 个章节，少于最少 ${min} 个的要求。请补全章节并严格控制在 ${min}-${max} 个之间。`
-      : `Retry: only ${headingCount} sections were generated, below minimum ${min}. Expand and keep strictly within ${min}-${max} sections.`
+      ? `重试：上一次只生成了 ${headingCount} 个${headingLabel}，少于最少 ${min} 个的要求。请补全并严格控制在 ${min}-${max} 个之间。`
+      : `Retry: only ${headingCount} ${headingLabel} were generated, below minimum ${min}. Expand and keep strictly within ${min}-${max}.`
   }
   if (headingCount > max) {
     return chinese
-      ? `重试：上一次生成了 ${headingCount} 个章节，超出了上限 ${max}。请压缩结构并严格控制在 ${min}-${max} 个之间。`
-      : `Retry: ${headingCount} sections were generated, above maximum ${max}. Compress and keep strictly within ${min}-${max} sections.`
+      ? `重试：上一次生成了 ${headingCount} 个${headingLabel}，超出了上限 ${max}。请压缩并严格控制在 ${min}-${max} 个之间。`
+      : `Retry: ${headingCount} ${headingLabel} were generated, above maximum ${max}. Compress and keep strictly within ${min}-${max}.`
   }
   return ''
 }
 
 function splitArticleIntoSections(article: string): ArticleSection[] {
-  const lines = String(article || '')
-    .replace(/\r/g, '')
-    .split('\n')
+  const normalizedArticle = String(article || '').replace(/\r/g, '')
+  const extractSubheadings = normalizedArticle.match(/^###\s+\S+/gm) || []
+  if (extractSubheadings.length > 0) {
+    const extractSections: ArticleSection[] = []
+    let currentTitle = ''
+    let currentLines: string[] = []
+
+    const flushExtract = () => {
+      const content = currentLines.join('\n').trim()
+      if (!content || !currentTitle) return
+      const anchor =
+        content
+          .split(/[。！？.!?\n]/)
+          .map((s) => s.trim())
+          .find(Boolean) || ''
+      extractSections.push({ title: currentTitle.trim(), anchor: anchor.slice(0, 36), content })
+    }
+
+    for (const rawLine of normalizedArticle.split('\n')) {
+      const line = rawLine.trim()
+      const subheading = line.match(/^###\s+(.+)$/)
+      if (subheading) {
+        flushExtract()
+        currentTitle = subheading[1].trim()
+        currentLines = []
+        continue
+      }
+      if (!currentTitle) continue
+      currentLines.push(rawLine)
+    }
+
+    flushExtract()
+    if (extractSections.length) return extractSections
+  }
+
+  const lines = normalizedArticle.split('\n')
 
   const sections: ArticleSection[] = []
   let currentTitle = ''

@@ -143,10 +143,13 @@ const Home: NextPage = () => {
         <div className="flex h-full grow flex-col">
           <div className="flex w-full justify-center">
             <header className="flex w-full max-w-7xl items-center justify-between whitespace-nowrap border-b border-border-strong px-6 py-4 dark:border-white/10 sm:px-10">
-              <div className="flex items-center gap-3 text-text-main dark:text-white">
+              <a
+                href="/"
+                className="hover:opacity-85 flex items-center gap-3 text-text-main transition-opacity dark:text-white"
+              >
                 <img src="/logo.svg" alt="Professor logo" className="h-7 w-7" />
                 <h2 className="text-xl font-bold text-text-main dark:text-slate-100">Professor</h2>
-              </div>
+              </a>
               <div className="flex flex-1 items-center justify-end gap-6 sm:gap-8">
                 <nav className="hidden items-center gap-6 sm:flex">
                   <a

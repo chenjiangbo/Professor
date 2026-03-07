@@ -18,6 +18,7 @@ type Copy = {
   navFeatures: string
   navPricing: string
   navWorkspace: string
+  navMainSiteLabel: string
   navEnter: string
   badge: string
   title: string
@@ -43,6 +44,7 @@ const COPY: Record<'zh-CN' | 'en-US', Copy> = {
     navFeatures: '功能',
     navPricing: '定价',
     navWorkspace: '工作区',
+    navMainSiteLabel: '返回官网',
     navEnter: '进入 Notebook',
     badge: 'AI 时代的学习操作系统',
     title: '长视频不是问题，低效学习才是',
@@ -81,6 +83,7 @@ const COPY: Record<'zh-CN' | 'en-US', Copy> = {
     navFeatures: 'Features',
     navPricing: 'Pricing',
     navWorkspace: 'Workspace',
+    navMainSiteLabel: 'Back to main site',
     navEnter: 'Open Notebook',
     badge: 'Learning OS for the AI Era',
     title: 'Long videos are not the problem. Inefficient learning is.',
@@ -228,6 +231,17 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-3">
               <nav className="hidden items-center gap-6 sm:flex">
+                <a
+                  href="https://www.xipilabs.com"
+                  aria-label={copy.navMainSiteLabel}
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-[linear-gradient(135deg,#111827,#475569)] text-[11px] font-bold tracking-[0.08em] text-white">
+                    XP
+                  </span>
+                  <span>XiPiLabs</span>
+                  <span className="material-symbols-outlined text-[15px]">arrow_outward</span>
+                </a>
                 <a
                   href="#features"
                   className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"

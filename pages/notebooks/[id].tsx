@@ -1637,7 +1637,7 @@ const NotebookDetail: NextPage = () => {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
             <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Import resources</h3>
+                <h3 className="text-lg font-semibold">{tx('Import resources', '导入资源')}</h3>
                 <button
                   className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
                   disabled={loadingImport}
@@ -1658,7 +1658,7 @@ const NotebookDetail: NextPage = () => {
                           : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
                       }`}
                     >
-                      {tab === 'url' ? 'URL' : tab === 'text' ? 'Text' : 'Files'}
+                      {tab === 'url' ? 'URL' : tab === 'text' ? tx('Text', '文本') : tx('Files', '文件')}
                     </button>
                   ))}
                 </div>
@@ -1673,13 +1673,16 @@ const NotebookDetail: NextPage = () => {
                     <textarea
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder={`Paste one or more video URLs (Bilibili / YouTube / Douyin).\nSupported separators: new line, space, comma, semicolon.`}
+                      placeholder={tx(
+                        'Paste one or more video URLs (Bilibili / YouTube / Douyin).\nSupported separators: new line, space, comma, semicolon.',
+                        '粘贴一个或多个视频链接（Bilibili / YouTube / Douyin）。\n支持分隔符：换行、空格、逗号、分号。',
+                      )}
                       rows={8}
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
-                        Import scope
+                        {tx('Import scope', '导入范围')}
                       </p>
                       <div className="flex flex-col gap-2">
                         <label className="flex cursor-pointer items-center gap-2">
@@ -1690,7 +1693,9 @@ const NotebookDetail: NextPage = () => {
                             checked={expandMode === 'current'}
                             onChange={() => setExpandMode('current')}
                           />
-                          <span>Import current video/part only (Recommended)</span>
+                          <span>
+                            {tx('Import current video/part only (Recommended)', '仅导入当前视频/分P（推荐）')}
+                          </span>
                         </label>
                         <label className="flex cursor-pointer items-center gap-2">
                           <input
@@ -1700,7 +1705,12 @@ const NotebookDetail: NextPage = () => {
                             checked={expandMode === 'all'}
                             onChange={() => setExpandMode('all')}
                           />
-                          <span>Expand each URL to all parts/episodes</span>
+                          <span>
+                            {tx(
+                              'Expand each URL to all parts/episodes (Bilibili multi-part / YouTube playlist only)',
+                              '展开每个链接的全部分P/剧集（仅支持 Bilibili 多分P / YouTube 播放列表）',
+                            )}
+                          </span>
                         </label>
                       </div>
                     </div>
@@ -1711,18 +1721,19 @@ const NotebookDetail: NextPage = () => {
                     <input
                       value={textTitleInput}
                       onChange={(e) => setTextTitleInput(e.target.value)}
-                      placeholder="Title (optional)"
+                      placeholder={tx('Title (optional)', '标题（可选）')}
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <textarea
                       value={textBodyInput}
                       onChange={(e) => setTextBodyInput(e.target.value)}
                       rows={10}
-                      placeholder="Paste text content to import"
+                      placeholder={tx('Paste text content to import', '粘贴要导入的文本内容')}
                       className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                     />
                     <div className="text-xs text-text-muted dark:text-white/50">
-                      {tx('Characters', '字符数')}: {textBodyInput.trim().length} | UTF-8 bytes: {textByteLength}
+                      {tx('Characters', '字符数')}: {textBodyInput.trim().length} | {tx('UTF-8 bytes', 'UTF-8 字节')}:{' '}
+                      {textByteLength}
                     </div>
                     {textWillTruncate ? (
                       <div className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100">
@@ -1746,7 +1757,7 @@ const NotebookDetail: NextPage = () => {
                 ) : null}
                 <div className="dark:border-white/15 rounded-md border border-border-strong bg-white/60 px-3 py-2 text-sm dark:bg-black/20">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted dark:text-white/60">
-                    Interpretation mode
+                    {tx('Interpretation mode', '解读模式')}
                   </p>
                   <div className="flex flex-col gap-2">
                     <label className="flex cursor-pointer items-center gap-2">
@@ -1757,7 +1768,7 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'none'}
                         onChange={() => setImportInterpretationMode('none')}
                       />
-                      <span>Import only (no summary/interpretation)</span>
+                      <span>{tx('Import only (no summary/interpretation)', '仅导入（不生成总结/解读）')}</span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1767,7 +1778,7 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'concise'}
                         onChange={() => setImportInterpretationMode('concise')}
                       />
-                      <span>Concise (faster, more compressed)</span>
+                      <span>{tx('Concise (faster, more compressed)', '简明（更快、更精炼）')}</span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1777,7 +1788,7 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'detailed'}
                         onChange={() => setImportInterpretationMode('detailed')}
                       />
-                      <span>Detailed (keeps more details)</span>
+                      <span>{tx('Detailed (keeps more details)', '详细（保留更多细节）')}</span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1787,21 +1798,23 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'extract'}
                         onChange={() => setImportInterpretationMode('extract')}
                       />
-                      <span>Extract (minimal knowledge distillation)</span>
+                      <span>{tx('Extract (minimal knowledge distillation)', '提取（极简知识提炼）')}</span>
                     </label>
                   </div>
                 </div>
                 {importError && <p className="text-sm text-red-500 dark:text-red-400">{importError}</p>}
                 {importNotice && <p className="text-sm text-green-600 dark:text-green-400">{importNotice}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
-                  Import runs in background. Text/file defaults to import-only; you can switch to concise, detailed, or
-                  extract mode.
+                  {tx(
+                    'Import runs in background. Text/file defaults to import-only; you can switch to concise, detailed, or extract mode.',
+                    '导入会在后台执行。文本/文件默认仅导入；你也可以切换为简明、详细或提取模式。',
+                  )}
                 </p>
                 {importTab === 'url' ? (
                   <p className="text-xs text-text-muted dark:text-white/50">
                     {tx(
-                      'URL import currently supports Bilibili and YouTube only.',
-                      'URL 导入当前仅支持 Bilibili 和 YouTube。',
+                      'URL import currently supports Bilibili, YouTube, and Douyin.',
+                      'URL 导入当前支持 Bilibili、YouTube 和 Douyin。',
                     )}
                   </p>
                 ) : null}
@@ -1826,7 +1839,7 @@ const NotebookDetail: NextPage = () => {
                     onClick={() => setShowImportModal(false)}
                     className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/20 dark:text-white"
                   >
-                    Cancel
+                    {tx('Cancel', '取消')}
                   </button>
                   <button
                     onClick={handleImport}
@@ -1841,10 +1854,10 @@ const NotebookDetail: NextPage = () => {
                     {loadingImport ? (
                       <span className="inline-flex items-center gap-2">
                         <span className="material-symbols-outlined animate-spin !text-[16px]">progress_activity</span>
-                        <span>Importing...</span>
+                        <span>{tx('Importing...', '导入中...')}</span>
                       </span>
                     ) : (
-                      'Start import'
+                      tx('Start import', '开始导入')
                     )}
                   </button>
                 </div>
