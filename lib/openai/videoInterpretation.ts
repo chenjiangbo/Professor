@@ -278,9 +278,6 @@ async function generateFullArticle(
         chinese
           ? '4) 不写文章：禁止寒暄、禁止开场白、禁止修辞铺陈、禁止人物引用、禁止金句风格。'
           : '4) No prose style: no greetings, no narrative opening, no rhetorical flourish, no named-person quotes.',
-        chinese
-          ? '5) 不扩写：不要引入与原文无关的外部背景，不做长段推演。'
-          : '5) No unrelated expansion: do not inject external background unrelated to the transcript.',
         '',
         chinese ? '输出格式（严格）：' : 'Output format (strict):',
         chinese ? '- 第一行必须是：## 核心知识点' : '- First line must be: ## Key Knowledge Points',
@@ -288,17 +285,15 @@ async function generateFullArticle(
           ? '- 之后按以下结构逐条输出（每个 POINTS 对应一条）：'
           : '- Then for each POINT, use the structure below (one item per POINT):',
         chinese ? '### {序号}. {知识点标题}' : '### {index}. {point title}',
-        chinese ? '这点在说什么：{1句大白话，必要时最多2句}' : 'What it means: {1 plain sentence, at most 2}',
-        chinese ? '为什么重要：{0-1句，可省略；若写，必须通俗}' : 'Why it matters: {0-1 plain sentence, optional}',
+        chinese ? '{直接写 1-2 句正文，不要加固定前缀}' : '{Write 1-2 direct sentences only, with no fixed prefix}',
         '',
         chinese ? '长度约束（严格）：' : 'Length limits (strict):',
         chinese
-          ? '- “这点在说什么”单行建议 18-45 个汉字，最多不超过 60 个汉字。'
-          : '- “What it means” should be short (about 10-22 words, hard max 30).',
+          ? '- 每个知识点正文控制在 1-2 句内，尽量短，但要把意思说清楚。'
+          : '- Keep each point body to 1-2 short sentences, but make the idea clear.',
         chinese
-          ? '- “为什么重要”单行建议 12-35 个汉字，最多不超过 50 个汉字。'
-          : '- “Why it matters” should be short (about 8-18 words, hard max 25).',
-        chinese ? '- 每个知识点总共最多 2 句（不含标题行）。' : '- Max 2 sentences per point (excluding heading line).',
+          ? '- 不要输出固定字段名、标签名或问答式提示语。'
+          : '- Do not output fixed field labels, section labels, or prompt-like phrasing.',
         retryHint || '',
         '',
         chinese ? '待覆盖的大纲议题（POINTS）：' : 'Mandatory POINTS to cover:',
