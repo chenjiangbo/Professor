@@ -45,4 +45,9 @@ jobs:
 
             docker compose -f docker-compose.prod.yml build professor professor-billing-worker
             docker compose -f docker-compose.prod.yml up -d professor professor-billing-worker
+
+            # Ensure bind-mounted cover storage is writable by runtime user (uid 1001).
+            docker exec -u 0 professor sh -lc "mkdir -p /app/storage/notebook-covers && chown -R 1001:1001 /app/storage && chmod -R u+rwX,g+rwX /app/storage"
+            docker exec professor sh -lc "test -w /app/storage/notebook-covers"
+
             docker image prune -f --filter "until=168h"
