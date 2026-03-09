@@ -19,8 +19,11 @@ services:
     env_file: .env
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+      NOTEBOOK_COVER_STORAGE_DIR: /app/storage/notebook-covers
+      VERTEX_NOTEBOOK_COVER_MODEL: imagen-4.0-fast-generate-001
     volumes:
       - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
+      - ./storage:/app/storage
     ports:
       - 8300:3000
     networks:
@@ -34,8 +37,11 @@ services:
     container_name: bibigpt-dev
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+      NOTEBOOK_COVER_STORAGE_DIR: /app/storage/notebook-covers
+      VERTEX_NOTEBOOK_COVER_MODEL: imagen-4.0-fast-generate-001
     volumes:
       - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
+      - ./storage:/app/storage
     ports:
       - 3302:3000
     env_file: .env.local
@@ -52,8 +58,11 @@ services:
     environment:
       INTERNAL_JOB_BASE_URL: http://bibigpt-dev:3000
       GOOGLE_APPLICATION_CREDENTIALS: /app/vertex-sa.json
+      NOTEBOOK_COVER_STORAGE_DIR: /app/storage/notebook-covers
+      VERTEX_NOTEBOOK_COVER_MODEL: imagen-4.0-fast-generate-001
     volumes:
       - ./crafty-willow-469010-d3-a16f33a47583.json:/app/vertex-sa.json:ro
+      - ./storage:/app/storage
     depends_on:
       - bibigpt-dev
     networks:

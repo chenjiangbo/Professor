@@ -84,6 +84,14 @@ const worker = new Worker(
       return payload
     }
 
+    if (job.name === 'notebook-cover-generate') {
+      const payload = await callInternalJob('/api/internal/jobs/notebook-cover', {
+        userId: String(job.data?.userId || ''),
+        notebookId: String(job.data?.notebookId || ''),
+      })
+      return payload
+    }
+
     throw new Error(`Unsupported billing job: ${job.name}`)
   },
   { connection, concurrency: 1 },

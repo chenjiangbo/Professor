@@ -59,6 +59,47 @@ export async function updateNotebook(userId: string, id: string, data: { title?:
   return rows[0] || null
 }
 
+export async function updateNotebookCoverForUser(
+  userId: string,
+  id: string,
+  data: {
+    coverUrl?: string | null
+    coverStatus?: 'none' | 'queued' | 'generating' | 'ready' | 'error'
+    touchCoverUpdatedAt?: boolean
+  },
+) {
+  const assignments: string[] = []
+  const values: Array<string | null> = [id, userId]
+  let idx = 2
+
+  if (Object.prototype.hasOwnProperty.call(data, 'coverUrl')) {
+    assignments.push(`cover_url=$${++idx}`)
+    values.push(data.coverUrl ?? null)
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'coverStatus')) {
+    assignments.push(`cover_status=$${++idx}`)
+    values.push(data.coverStatus ?? null)
+  }
+
+  if (data.touchCoverUpdatedAt) {
+    assignments.push('cover_updated_at=now()')
+  }
+
+  if (!assignments.length) {
+    return getNotebook(userId, id)
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE notebooks
+     SET ${assignments.join(', ')}, updated_at=now()
+     WHERE id=$1 AND owner_user_id=$2
+     RETURNING *`,
+    values,
+  )
+  return rows[0] || null
+}
+
 export async function deleteNotebook(userId: string, id: string) {
   await pool.query('DELETE FROM notebooks WHERE id=$1 AND owner_user_id=$2', [id, userId])
 }

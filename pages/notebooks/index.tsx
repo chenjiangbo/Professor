@@ -9,12 +9,21 @@ import { useAppLanguage } from '~/hooks/useAppLanguage'
 import MembershipBadge from '~/components/MembershipBadge'
 import type { SubscriptionTier } from '~/lib/billing/repo'
 
+type NotebookCoverUpload = {
+  file: File
+  previewUrl: string
+  name: string
+}
+
 type Notebook = {
   id: string
   title: string
   description?: string
   updatedAt: string
   createdAt: string
+  cover_url?: string | null
+  cover_status?: 'none' | 'queued' | 'generating' | 'ready' | 'error'
+  coverUpdatedAt?: string | null
 }
 
 type MePayload = {
@@ -29,6 +38,14 @@ function formatUserLabel(me: MePayload | null | undefined): string {
   if (!raw) return '-'
   if (raw.length <= 16) return raw
   return `${raw.slice(0, 8)}...${raw.slice(-4)}`
+}
+
+function getNotebookCoverImage(notebook: Notebook, idx: number): string {
+  if (notebook.cover_status === 'ready' && notebook.cover_url) {
+    const version = encodeURIComponent(String(notebook.coverUpdatedAt || notebook.updatedAt || ''))
+    return `/api/notebooks/${notebook.id}/cover?v=${version}`
+  }
+  return `/assets/img-${['0d3fd8d9589da2d0', 'd9fe1a795da73d42', 'e3c7b66368cd4032'][idx % 3]}.jpg`
 }
 
 const fetcher = async (url: string) => {
@@ -56,6 +73,23 @@ const meFetcher = async (url: string): Promise<MePayload | null> => {
   return data as MePayload
 }
 
+async function readImageFileAsUpload(file: File): Promise<NotebookCoverUpload> {
+  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp'])
+  if (!allowed.has(file.type)) {
+    throw new Error('Unsupported cover image type. Only PNG, JPEG, and WebP are allowed.')
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error('Cover image is too large. Current limit is 8MB.')
+  }
+
+  const previewUrl = URL.createObjectURL(file)
+  return {
+    file,
+    previewUrl,
+    name: file.name,
+  }
+}
+
 const Home: NextPage = () => {
   const router = useRouter()
   const { data: notebooks, mutate } = useSWR<Notebook[]>('/api/notebooks', fetcher)
@@ -68,8 +102,15 @@ const Home: NextPage = () => {
   const tx = (en: string, zh: string) => (isZh ? zh : en)
   const [creating, setCreating] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editingNotebookId, setEditingNotebookId] = useState('')
   const [createTitle, setCreateTitle] = useState('')
   const [createDesc, setCreateDesc] = useState('')
+  const [createCover, setCreateCover] = useState<NotebookCoverUpload | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [editCover, setEditCover] = useState<NotebookCoverUpload | null>(null)
   const [titleFilter, setTitleFilter] = useState('')
   const [descFilter, setDescFilter] = useState('')
 
@@ -90,10 +131,15 @@ const Home: NextPage = () => {
       return
     }
     setCreating(true)
+    const formData = new FormData()
+    formData.append('title', createTitle)
+    formData.append('description', createDesc)
+    if (createCover?.file) {
+      formData.append('cover', createCover.file)
+    }
     const res = await fetch('/api/notebooks', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: createTitle, description: createDesc }),
+      body: formData,
     })
     if (!res.ok) {
       setCreating(false)
@@ -105,6 +151,8 @@ const Home: NextPage = () => {
     setCreating(false)
     setCreateTitle('')
     setCreateDesc('')
+    if (createCover?.previewUrl) URL.revokeObjectURL(createCover.previewUrl)
+    setCreateCover(null)
     setShowCreateModal(false)
     mutate()
   }
@@ -124,6 +172,45 @@ const Home: NextPage = () => {
     }
     mutate((prev) => (Array.isArray(prev) ? prev.filter((nb) => nb.id !== id) : []), false)
     mutate()
+  }
+
+  const openEditModal = (notebook: Notebook) => {
+    if (editCover?.previewUrl) URL.revokeObjectURL(editCover.previewUrl)
+    setEditCover(null)
+    setEditingNotebookId(notebook.id)
+    setEditTitle(notebook.title)
+    setEditDesc(notebook.description || '')
+    setShowEditModal(true)
+  }
+
+  const handleEditSave = async () => {
+    if (!editingNotebookId || !editTitle.trim()) {
+      alert(tx('Please enter a notebook title.', '请输入 Notebook 标题。'))
+      return
+    }
+    setEditing(true)
+    const formData = new FormData()
+    formData.append('title', editTitle)
+    formData.append('description', editDesc)
+    if (editCover?.file) {
+      formData.append('cover', editCover.file)
+    }
+    const res = await fetch(`/api/notebooks/${editingNotebookId}`, {
+      method: 'PATCH',
+      body: formData,
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setEditing(false)
+      alert(json?.error || tx(`Save failed: ${res.statusText}`, `保存失败：${res.statusText}`))
+      return
+    }
+    mutate((prev) => (Array.isArray(prev) ? prev.map((nb) => (nb.id === json.id ? json : nb)) : [json]), false)
+    mutate()
+    setEditing(false)
+    if (editCover?.previewUrl) URL.revokeObjectURL(editCover.previewUrl)
+    setEditCover(null)
+    setShowEditModal(false)
   }
 
   useEffect(() => {
@@ -224,9 +311,20 @@ const Home: NextPage = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
+                        openEditModal(notebook)
+                      }}
+                      className="absolute right-12 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-200 bg-sky-600 text-white opacity-0 shadow-sm transition hover:bg-sky-700 group-hover:opacity-100 dark:border-sky-400/40 dark:bg-sky-500 dark:hover:bg-sky-400"
+                      title="Edit notebook"
+                      aria-label="Edit notebook"
+                    >
+                      <span className="material-symbols-outlined text-base">edit</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
                         handleDeleteNotebook(notebook.id, notebook.title)
                       }}
-                      className="bg-black/45 hover:bg-black/65 absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-white opacity-0 transition group-hover:opacity-100"
+                      className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-600 text-white opacity-0 shadow-sm transition hover:bg-rose-700 group-hover:opacity-100 dark:border-rose-400/40 dark:bg-rose-500 dark:hover:bg-rose-400"
                       title="Delete notebook"
                       aria-label="Delete notebook"
                     >
@@ -236,9 +334,7 @@ const Home: NextPage = () => {
                       className="aspect-[16/9] w-full flex-shrink-0 rounded-t-xl bg-cover bg-center bg-no-repeat"
                       data-alt={notebook.title}
                       style={{
-                        backgroundImage: `url("/assets/img-${
-                          ['0d3fd8d9589da2d0', 'd9fe1a795da73d42', 'e3c7b66368cd4032'][idx % 3]
-                        }.jpg")`,
+                        backgroundImage: `url("${getNotebookCoverImage(notebook, idx)}")`,
                       }}
                     />
                     <div className="flex w-full grow flex-col items-stretch justify-start gap-1 p-5">
@@ -266,6 +362,8 @@ const Home: NextPage = () => {
                   className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
                   onClick={() => {
                     if (creating) return
+                    if (createCover?.previewUrl) URL.revokeObjectURL(createCover.previewUrl)
+                    setCreateCover(null)
                     setShowCreateModal(false)
                   }}
                 >
@@ -286,6 +384,51 @@ const Home: NextPage = () => {
                   rows={3}
                   className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
                 />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-text-main dark:text-white">
+                    {tx('Cover image (optional)', '封面图片（可选）')}
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      const inputEl = e.currentTarget
+                      const file = inputEl.files?.[0]
+                      if (!file) return
+                      try {
+                        if (createCover?.previewUrl) URL.revokeObjectURL(createCover.previewUrl)
+                        const upload = await readImageFileAsUpload(file)
+                        setCreateCover(upload)
+                      } catch (error: any) {
+                        alert(
+                          isZh
+                            ? error?.message
+                                ?.replace(
+                                  'Unsupported cover image type. Only PNG, JPEG, and WebP are allowed.',
+                                  '封面图片格式不支持，仅支持 PNG、JPEG、WebP。',
+                                )
+                                ?.replace(
+                                  'Cover image is too large. Current limit is 8MB.',
+                                  '封面图片过大，当前限制为 8MB。',
+                                ) || '读取封面失败'
+                            : error?.message || 'Failed to read cover image',
+                        )
+                      } finally {
+                        inputEl.value = ''
+                      }
+                    }}
+                    className="block w-full text-sm text-text-main file:mr-3 file:rounded-md file:border-0 file:bg-accent/20 file:px-3 file:py-2 file:text-sm file:font-medium dark:text-white dark:file:bg-white/10"
+                  />
+                  {createCover ? (
+                    <div className="dark:border-white/15 overflow-hidden rounded-lg border border-border-strong">
+                      <img
+                        src={createCover.previewUrl}
+                        alt="Notebook cover preview"
+                        className="aspect-[16/9] w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div className="mt-5 flex justify-end gap-2">
                 <button
@@ -303,6 +446,106 @@ const Home: NextPage = () => {
                   className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
                 >
                   {creating ? tx('Creating...', '创建中...') : tx('Create', '创建')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{tx('Edit Notebook', '编辑 Notebook')}</h3>
+                <button
+                  className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
+                  onClick={() => {
+                    if (editing) return
+                    if (editCover?.previewUrl) URL.revokeObjectURL(editCover.previewUrl)
+                    setEditCover(null)
+                    setShowEditModal(false)
+                  }}
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder={tx('Notebook title', 'Notebook 标题')}
+                  className="h-10 w-full rounded-md border border-border-strong bg-white px-3 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                />
+                <textarea
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  placeholder={tx('Description (optional)', '描述（可选）')}
+                  rows={3}
+                  className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-text-main dark:text-white">
+                    {tx('Replace cover image (optional)', '替换封面图片（可选）')}
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      const inputEl = e.currentTarget
+                      const file = inputEl.files?.[0]
+                      if (!file) return
+                      try {
+                        if (editCover?.previewUrl) URL.revokeObjectURL(editCover.previewUrl)
+                        const upload = await readImageFileAsUpload(file)
+                        setEditCover(upload)
+                      } catch (error: any) {
+                        alert(
+                          isZh
+                            ? error?.message
+                                ?.replace(
+                                  'Unsupported cover image type. Only PNG, JPEG, and WebP are allowed.',
+                                  '封面图片格式不支持，仅支持 PNG、JPEG、WebP。',
+                                )
+                                ?.replace(
+                                  'Cover image is too large. Current limit is 8MB.',
+                                  '封面图片过大，当前限制为 8MB。',
+                                ) || '读取封面失败'
+                            : error?.message || 'Failed to read cover image',
+                        )
+                      } finally {
+                        inputEl.value = ''
+                      }
+                    }}
+                    className="block w-full text-sm text-text-main file:mr-3 file:rounded-md file:border-0 file:bg-accent/20 file:px-3 file:py-2 file:text-sm file:font-medium dark:text-white dark:file:bg-white/10"
+                  />
+                  {editCover ? (
+                    <div className="dark:border-white/15 overflow-hidden rounded-lg border border-border-strong">
+                      <img
+                        src={editCover.previewUrl}
+                        alt="Notebook cover preview"
+                        className="aspect-[16/9] w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    if (editing) return
+                    if (editCover?.previewUrl) URL.revokeObjectURL(editCover.previewUrl)
+                    setEditCover(null)
+                    setShowEditModal(false)
+                  }}
+                  className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 dark:border-white/20 dark:text-white"
+                >
+                  {tx('Cancel', '取消')}
+                </button>
+                <button
+                  onClick={handleEditSave}
+                  disabled={editing || !editTitle.trim()}
+                  className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
+                >
+                  {editing ? tx('Saving...', '保存中...') : tx('Save', '保存')}
                 </button>
               </div>
             </div>

@@ -208,7 +208,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         batchId: batch.id,
         platform: item.platform,
         sourceType,
-        generationProfile: 'full_interpretation',
+        generationProfile: selectedMode === 'none' ? 'import_only' : 'full_interpretation',
         externalId: item.externalId,
         sourceUrl: item.sourceUrl,
         title: item.title || 'Importing...',

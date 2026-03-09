@@ -224,58 +224,62 @@ export default function Home() {
       </Head>
       <div className="min-h-screen bg-[#f6f9ff] text-slate-900">
         <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3 sm:px-10">
-            <div className="flex items-center gap-4">
-              <a
-                href="https://www.xipilabs.com"
-                aria-label={copy.navMainSiteLabel}
-                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900"
-              >
-                <img src="/xipi_log_notext.png" alt="XiPiLabs logo" className="h-5 w-5 rounded-sm object-contain" />
-                <span>XiPiLabs</span>
-              </a>
-              <div className="flex items-center gap-3">
-                <img src="/logo.svg" alt="Professor logo" className="h-7 w-7" />
-                <span className="text-lg font-bold text-slate-900">Professor</span>
+          <div className="flex w-full items-center justify-between gap-6 px-6 py-3 sm:px-10">
+            <a
+              href="https://www.xipilabs.com"
+              aria-label={copy.navMainSiteLabel}
+              className="inline-flex shrink-0 items-center gap-2 text-sm font-semibold text-emerald-700 transition hover:text-emerald-900"
+            >
+              <img src="/xipi_log_notext.png" alt="XiPiLabs logo" className="h-5 w-5 object-contain" />
+              <span className="tracking-[0.02em] text-emerald-700">XiPiLabs</span>
+            </a>
+            <div className="flex flex-1 justify-center">
+              <div className="flex w-full max-w-7xl items-center justify-between gap-6">
+                <div className="flex min-w-0 items-center gap-8">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <img src="/logo.svg" alt="Professor logo" className="h-7 w-7" />
+                    <span className="text-lg font-bold text-slate-900">Professor</span>
+                  </div>
+                  <nav className="hidden items-center gap-6 sm:flex">
+                    <a
+                      href="#features"
+                      className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
+                    >
+                      {copy.navFeatures}
+                    </a>
+                    <a
+                      href="#workspace"
+                      className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
+                    >
+                      {copy.navWorkspace}
+                    </a>
+                    <a
+                      href="#pricing"
+                      className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
+                    >
+                      {copy.navPricing}
+                    </a>
+                  </nav>
+                </div>
+                <div className="flex items-center gap-3">
+                  <a
+                    href="https://github.com/chenjiangbo/Professor"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    aria-label="Open GitHub repository"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
+                  >
+                    <Github width="18" height="18" />
+                  </a>
+                  <LanguageSwitcher language={language} onChange={setLanguage} />
+                  <Link
+                    href="/notebooks"
+                    className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                  >
+                    {copy.navEnter}
+                  </Link>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <nav className="hidden items-center gap-6 sm:flex">
-                <a
-                  href="#features"
-                  className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
-                >
-                  {copy.navFeatures}
-                </a>
-                <a
-                  href="#workspace"
-                  className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
-                >
-                  {copy.navWorkspace}
-                </a>
-                <a
-                  href="#pricing"
-                  className="text-sm font-medium text-slate-600 underline-offset-4 transition hover:text-slate-900 hover:underline"
-                >
-                  {copy.navPricing}
-                </a>
-              </nav>
-              <a
-                href="https://github.com/chenjiangbo/Professor"
-                target="_blank"
-                rel="noreferrer noopener"
-                aria-label="Open GitHub repository"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
-              >
-                <Github width="18" height="18" />
-              </a>
-              <LanguageSwitcher language={language} onChange={setLanguage} />
-              <Link
-                href="/notebooks"
-                className="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                {copy.navEnter}
-              </Link>
             </div>
           </div>
         </header>

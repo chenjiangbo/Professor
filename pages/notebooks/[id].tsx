@@ -32,6 +32,9 @@ type Notebook = {
   id: string
   title: string
   description?: string
+  cover_url?: string | null
+  cover_status?: 'none' | 'queued' | 'generating' | 'ready' | 'error'
+  coverUpdatedAt?: string | null
 }
 
 type ChatMessage = {
@@ -77,6 +80,12 @@ type MePayload = {
   tier: SubscriptionTier
 }
 
+type NotebookCoverUpload = {
+  file: File
+  previewUrl: string
+  name: string
+}
+
 const fetcher = (url: string) => fetch(url).then((r) => r.json())
 
 const meFetcher = async (url: string): Promise<MePayload | null> => {
@@ -109,6 +118,29 @@ function splitInputUrls(input: string) {
 
 function getUtf8Length(input: string) {
   return new TextEncoder().encode(String(input || '')).length
+}
+
+function getNotebookCoverUrl(notebook?: Notebook | null) {
+  if (!notebook || notebook.cover_status !== 'ready' || !notebook.cover_url) return null
+  const version = encodeURIComponent(String(notebook.coverUpdatedAt || ''))
+  return `/api/notebooks/${notebook.id}/cover?v=${version}`
+}
+
+async function readImageFileAsUpload(file: File): Promise<NotebookCoverUpload> {
+  const allowed = new Set(['image/png', 'image/jpeg', 'image/webp'])
+  if (!allowed.has(file.type)) {
+    throw new Error('Unsupported cover image type. Only PNG, JPEG, and WebP are allowed.')
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error('Cover image is too large. Current limit is 8MB.')
+  }
+
+  const previewUrl = URL.createObjectURL(file)
+  return {
+    file,
+    previewUrl,
+    name: file.name,
+  }
 }
 
 async function parseResponseJsonSafe(res: Response) {
@@ -254,7 +286,7 @@ const NotebookDetail: NextPage = () => {
   const { language, setLanguage } = useAppLanguage()
   const isZh = language === 'zh-CN'
   const tx = (en: string, zh: string) => (isZh ? zh : en)
-  const { data: notebook } = useSWR<Notebook>(id ? `/api/notebooks/${id}` : null, fetcher)
+  const { data: notebook, mutate: mutateNotebook } = useSWR<Notebook>(id ? `/api/notebooks/${id}` : null, fetcher)
   const { data: me } = useSWR<MePayload | null>('/api/auth/me', meFetcher)
   const { data: videosData, mutate } = useSWR<Video[]>(
     id ? `/api/notebooks/${id}/videos?lang=${encodeURIComponent(language)}` : null,
@@ -284,6 +316,11 @@ const NotebookDetail: NextPage = () => {
   const [exportIncludeSubtitle, setExportIncludeSubtitle] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [showEditNotebookModal, setShowEditNotebookModal] = useState(false)
+  const [editingNotebook, setEditingNotebook] = useState(false)
+  const [editNotebookTitle, setEditNotebookTitle] = useState('')
+  const [editNotebookDescription, setEditNotebookDescription] = useState('')
+  const [editNotebookCover, setEditNotebookCover] = useState<NotebookCoverUpload | null>(null)
   const [activeTab, setActiveTab] = useState<MainTab>('learn')
   const [activeVideoId, setActiveVideoId] = useState<string>('')
   const [subtitleSearch, setSubtitleSearch] = useState<string>('')
@@ -400,6 +437,11 @@ const NotebookDetail: NextPage = () => {
       setActiveVideoId(videos[0].id)
     }
   }, [videos, activeVideoId])
+
+  useEffect(() => {
+    setEditNotebookTitle(String(notebook?.title || ''))
+    setEditNotebookDescription(String(notebook?.description || ''))
+  }, [notebook?.id, notebook?.title, notebook?.description])
 
   useEffect(() => {
     const mode = defaultInterpretationModeData?.mode
@@ -674,6 +716,39 @@ const NotebookDetail: NextPage = () => {
       alert(e?.message || tx('Reimport failed', '重新导入失败'))
     } finally {
       setReimportingVideoId('')
+    }
+  }
+
+  const handleSaveNotebook = async () => {
+    if (!id || !editNotebookTitle.trim()) {
+      alert(tx('Please enter a notebook title.', '请输入 Notebook 标题。'))
+      return
+    }
+
+    setEditingNotebook(true)
+    try {
+      const formData = new FormData()
+      formData.append('title', editNotebookTitle)
+      formData.append('description', editNotebookDescription)
+      if (editNotebookCover?.file) {
+        formData.append('cover', editNotebookCover.file)
+      }
+      const res = await fetch(`/api/notebooks/${id}`, {
+        method: 'PATCH',
+        body: formData,
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(json?.error || tx(`Save failed (${res.status})`, `保存失败（${res.status}）`))
+      }
+      mutateNotebook()
+      if (editNotebookCover?.previewUrl) URL.revokeObjectURL(editNotebookCover.previewUrl)
+      setEditNotebookCover(null)
+      setShowEditNotebookModal(false)
+    } catch (e: any) {
+      alert(e?.message || tx('Save failed', '保存失败'))
+    } finally {
+      setEditingNotebook(false)
     }
   }
 
@@ -1179,6 +1254,14 @@ const NotebookDetail: NextPage = () => {
             </div>
           </div>
           <div className="flex flex-1 items-center justify-end gap-6">
+            <button
+              type="button"
+              onClick={() => setShowEditNotebookModal(true)}
+              className="inline-flex items-center gap-1 text-sm font-medium text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
+            >
+              <span className="material-symbols-outlined text-[16px]">edit_square</span>
+              {tx('Edit notebook', '编辑 Notebook')}
+            </button>
             <a
               className="inline-flex items-center gap-1 text-sm font-medium text-text-main hover:text-text-muted dark:text-white/80 dark:hover:text-white"
               href="/settings"
@@ -1197,439 +1280,475 @@ const NotebookDetail: NextPage = () => {
           </div>
         </header>
 
-        <main className="grid flex-1 grid-cols-12 gap-4 overflow-hidden p-4">
-          <div className="col-span-12 flex flex-col gap-4 overflow-hidden rounded-lg border border-border-strong bg-card p-4 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none lg:col-span-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase text-text-muted dark:text-white/40">
-                {tx('Sources', '资源')}
-              </h3>
-              <div className="flex gap-2">
-                {selected.length > 0 && (
-                  <button
-                    onClick={handleBatchDelete}
-                    className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400"
-                  >
-                    {tx(`Delete (${selected.length})`, `删除（${selected.length}）`)}
-                  </button>
-                )}
-                {canExportZip ? (
-                  <div ref={exportMenuRef} className="relative inline-flex">
-                    <div className="inline-flex overflow-hidden rounded border border-border-strong bg-white dark:border-white/20 dark:bg-black/20">
-                      <button
-                        onClick={handleExportNotebook}
-                        disabled={exportingZip || !canExportZip}
-                        title={tx('Export notebook', '导出笔记本')}
-                        className="cursor-pointer px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-white/90"
-                      >
-                        {exportingZip ? tx('Exporting...', '导出中...') : tx('Export', '导出')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setExportMenuOpen((v) => !v)}
-                        className="cursor-pointer border-l border-border-strong px-1 text-text-main hover:bg-accent/10 dark:border-white/20 dark:text-white/90"
-                        aria-label={tx('Export options', '导出选项')}
-                        title={tx('Export options', '导出选项')}
-                      >
-                        <span className="material-symbols-outlined !text-[16px]">arrow_drop_down</span>
-                      </button>
-                    </div>
-                    {exportMenuOpen ? (
-                      <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-md border border-border-strong bg-card p-2 shadow-lg dark:border-white/20 dark:bg-[#1a1f35]">
-                        <label className="mb-2 flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
-                          <input
-                            type="checkbox"
-                            checked={exportIncludeInterpretation}
-                            onChange={(e) => setExportIncludeInterpretation(e.target.checked)}
-                            className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
-                          />
-                          <span>{tx('Deep interpretation', '深度解读')}</span>
-                        </label>
-                        <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
-                          <input
-                            type="checkbox"
-                            checked={exportIncludeSubtitle}
-                            onChange={(e) => setExportIncludeSubtitle(e.target.checked)}
-                            className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
-                          />
-                          <span>{tx('Subtitles', '字幕')}</span>
-                        </label>
+        <main className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
+          {getNotebookCoverUrl(notebook) ? (
+            <section
+              className="relative shrink-0 overflow-hidden rounded-2xl border border-border-strong bg-card dark:border-white/10 dark:bg-white/5"
+              style={{
+                backgroundImage: `linear-gradient(135deg, rgba(7,12,23,0.18), rgba(7,12,23,0.58)), url("${getNotebookCoverUrl(
+                  notebook,
+                )}")`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            >
+              <div className="flex min-h-[180px] flex-col justify-end px-6 py-7 sm:min-h-[220px]">
+                <div className="max-w-3xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                    {tx('Notebook cover', 'Notebook 封面')}
+                  </p>
+                  <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                    {notebook?.title || ''}
+                  </h1>
+                  {notebook?.description ? (
+                    <p className="text-white/85 mt-3 max-w-2xl text-sm leading-7 sm:text-base">
+                      {notebook.description}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          ) : null}
+          <div className="grid min-h-0 flex-1 grid-cols-12 gap-4 overflow-hidden">
+            <div className="col-span-12 flex flex-col gap-4 overflow-hidden rounded-lg border border-border-strong bg-card p-4 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none lg:col-span-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase text-text-muted dark:text-white/40">
+                  {tx('Sources', '资源')}
+                </h3>
+                <div className="flex gap-2">
+                  {selected.length > 0 && (
+                    <button
+                      onClick={handleBatchDelete}
+                      className="rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400"
+                    >
+                      {tx(`Delete (${selected.length})`, `删除（${selected.length}）`)}
+                    </button>
+                  )}
+                  {canExportZip ? (
+                    <div ref={exportMenuRef} className="relative inline-flex">
+                      <div className="inline-flex overflow-hidden rounded border border-border-strong bg-white dark:border-white/20 dark:bg-black/20">
+                        <button
+                          onClick={handleExportNotebook}
+                          disabled={exportingZip || !canExportZip}
+                          title={tx('Export notebook', '导出笔记本')}
+                          className="cursor-pointer px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-white/90"
+                        >
+                          {exportingZip ? tx('Exporting...', '导出中...') : tx('Export', '导出')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExportMenuOpen((v) => !v)}
+                          className="cursor-pointer border-l border-border-strong px-1 text-text-main hover:bg-accent/10 dark:border-white/20 dark:text-white/90"
+                          aria-label={tx('Export options', '导出选项')}
+                          title={tx('Export options', '导出选项')}
+                        >
+                          <span className="material-symbols-outlined !text-[16px]">arrow_drop_down</span>
+                        </button>
                       </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <button
-                  onClick={() => {
-                    setShowImportModal(true)
-                    setImportError('')
-                    setImportNotice('')
-                    setUrlInput('')
-                    setTextTitleInput('')
-                    setTextBodyInput('')
-                    setImportFiles([])
-                    setImportTab('url')
-                    setExpandMode('current')
-                    setImportInterpretationMode(
-                      defaultInterpretationModeData?.mode === 'detailed'
-                        ? 'detailed'
-                        : defaultInterpretationModeData?.mode === 'extract'
-                        ? 'extract'
-                        : defaultInterpretationModeData?.mode === 'none'
-                        ? 'none'
-                        : 'concise',
-                    )
-                  }}
-                  className="rounded bg-accent px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/90 dark:bg-primary dark:text-white"
-                >
-                  {tx('Import', '导入')}
-                </button>
-              </div>
-            </div>
-
-            <div className="shrink-0">
-              <div className="flex h-10 w-full items-center rounded-lg border border-border-strong bg-white px-3 dark:border-white/20 dark:bg-black/20">
-                <span className="material-symbols-outlined mr-2 !text-[20px] text-text-muted dark:text-[#9da6b9]">
-                  search
-                </span>
-                <input
-                  className="flex-1 bg-transparent text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:text-white dark:placeholder:text-white/40"
-                  placeholder="Search sources"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="-mr-1 flex-1 space-y-2 overflow-y-auto pr-1">
-              {filteredVideos.map((video) => {
-                const active = video.id === activeVideoId
-                const meta = getVideoStatusMeta(video.status, language)
-                const processing = isProcessing(video.status)
-                const createdAtTs = new Date(video.created_at || 0).getTime()
-                const updatedAtTs = new Date(video.updated_at || 0).getTime()
-                const hasInterpretedTime =
-                  Number.isFinite(createdAtTs) &&
-                  Number.isFinite(updatedAtTs) &&
-                  updatedAtTs - createdAtTs > 1000 &&
-                  (video.status === 'ready' || video.status === 'error' || video.status === 'no-subtitle')
-                return (
+                      {exportMenuOpen ? (
+                        <div className="absolute right-0 top-full z-20 mt-2 w-48 rounded-md border border-border-strong bg-card p-2 shadow-lg dark:border-white/20 dark:bg-[#1a1f35]">
+                          <label className="mb-2 flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
+                            <input
+                              type="checkbox"
+                              checked={exportIncludeInterpretation}
+                              onChange={(e) => setExportIncludeInterpretation(e.target.checked)}
+                              className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                            />
+                            <span>{tx('Deep interpretation', '深度解读')}</span>
+                          </label>
+                          <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-text-main dark:text-white/90">
+                            <input
+                              type="checkbox"
+                              checked={exportIncludeSubtitle}
+                              onChange={(e) => setExportIncludeSubtitle(e.target.checked)}
+                              className="h-3.5 w-3.5 cursor-pointer accent-blue-600"
+                            />
+                            <span>{tx('Subtitles', '字幕')}</span>
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <button
-                    key={video.id}
-                    onClick={() => setActiveVideoId(video.id)}
-                    className={`w-full rounded-md border p-3 text-left transition ${
-                      active
-                        ? 'border-blue-400/50 bg-blue-500/10'
-                        : 'border-transparent bg-transparent hover:border-border-strong hover:bg-black/5 dark:hover:border-white/20 dark:hover:bg-white/5'
-                    }`}
+                    onClick={() => {
+                      setShowImportModal(true)
+                      setImportError('')
+                      setImportNotice('')
+                      setUrlInput('')
+                      setTextTitleInput('')
+                      setTextBodyInput('')
+                      setImportFiles([])
+                      setImportTab('url')
+                      setExpandMode('current')
+                      setImportInterpretationMode(
+                        defaultInterpretationModeData?.mode === 'detailed'
+                          ? 'detailed'
+                          : defaultInterpretationModeData?.mode === 'extract'
+                          ? 'extract'
+                          : defaultInterpretationModeData?.mode === 'none'
+                          ? 'none'
+                          : 'concise',
+                      )
+                    }}
+                    className="rounded bg-accent px-2 py-1 text-xs font-medium text-text-main hover:bg-accent/90 dark:bg-primary dark:text-white"
                   >
-                    <div className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(video.id)}
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleSelect(video.id)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-0.5 h-4 w-4 rounded"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex min-w-0 items-center gap-2">
+                    {tx('Import', '导入')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="shrink-0">
+                <div className="flex h-10 w-full items-center rounded-lg border border-border-strong bg-white px-3 dark:border-white/20 dark:bg-black/20">
+                  <span className="material-symbols-outlined mr-2 !text-[20px] text-text-muted dark:text-[#9da6b9]">
+                    search
+                  </span>
+                  <input
+                    className="flex-1 bg-transparent text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:text-white dark:placeholder:text-white/40"
+                    placeholder="Search sources"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="-mr-1 flex-1 space-y-2 overflow-y-auto pr-1">
+                {filteredVideos.map((video) => {
+                  const active = video.id === activeVideoId
+                  const meta = getVideoStatusMeta(video.status, language)
+                  const processing = isProcessing(video.status)
+                  const createdAtTs = new Date(video.created_at || 0).getTime()
+                  const updatedAtTs = new Date(video.updated_at || 0).getTime()
+                  const hasInterpretedTime =
+                    Number.isFinite(createdAtTs) &&
+                    Number.isFinite(updatedAtTs) &&
+                    updatedAtTs - createdAtTs > 1000 &&
+                    (video.status === 'ready' || video.status === 'error' || video.status === 'no-subtitle')
+                  return (
+                    <button
+                      key={video.id}
+                      onClick={() => setActiveVideoId(video.id)}
+                      className={`w-full rounded-md border p-3 text-left transition ${
+                        active
+                          ? 'border-blue-400/50 bg-blue-500/10'
+                          : 'border-transparent bg-transparent hover:border-border-strong hover:bg-black/5 dark:hover:border-white/20 dark:hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(video.id)}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            toggleSelect(video.id)
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 h-4 w-4 rounded"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span
+                                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                  getSourceTypeMeta(video).badge
+                                }`}
+                              >
+                                {getSourceTypeMeta(video).label}
+                              </span>
+                              <span className="material-symbols-outlined !text-[16px] text-text-muted dark:text-white/60">
+                                {getSourceTypeMeta(video).icon}
+                              </span>
+                              <p
+                                className="truncate text-sm font-medium text-text-main dark:text-white"
+                                title={video.title}
+                              >
+                                {video.title}
+                              </p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase ${meta.pill}`}>
+                              {meta.label}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-text-muted dark:text-white/60">
+                            {processing ? (
+                              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-yellow-300" />
+                            ) : null}
                             <span
                               className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                getSourceTypeMeta(video).badge
+                                getInterpretationModeMeta(video.interpretation_mode).badge
                               }`}
                             >
-                              {getSourceTypeMeta(video).label}
+                              {getInterpretationModeMeta(video.interpretation_mode).label}
                             </span>
-                            <span className="material-symbols-outlined !text-[16px] text-text-muted dark:text-white/60">
-                              {getSourceTypeMeta(video).icon}
-                            </span>
-                            <p
-                              className="truncate text-sm font-medium text-text-main dark:text-white"
-                              title={video.title}
-                            >
-                              {video.title}
-                            </p>
+                            <span>{getStageDescription(video.status, language)}</span>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase ${meta.pill}`}>
-                            {meta.label}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-text-muted dark:text-white/60">
-                          {processing ? (
-                            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-yellow-300" />
-                          ) : null}
-                          <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                              getInterpretationModeMeta(video.interpretation_mode).badge
-                            }`}
-                          >
-                            {getInterpretationModeMeta(video.interpretation_mode).label}
-                          </span>
-                          <span>{getStageDescription(video.status, language)}</span>
-                        </div>
-                        <div className="dark:text-white/45 mt-1 flex items-center gap-3 text-[11px] text-text-muted/90">
-                          <span
-                            className="inline-flex items-center gap-1"
-                            title={tx('Imported time', '导入时间')}
-                            aria-label={tx('Imported time', '导入时间')}
-                          >
-                            <span className="material-symbols-outlined !text-[13px]">download</span>
-                            <span>{formatTimestamp(video.created_at, language)}</span>
-                          </span>
-                          {hasInterpretedTime ? (
+                          <div className="dark:text-white/45 mt-1 flex items-center gap-3 text-[11px] text-text-muted/90">
                             <span
                               className="inline-flex items-center gap-1"
-                              title={tx('Last interpretation time', '最近解读时间')}
-                              aria-label={tx('Last interpretation time', '最近解读时间')}
+                              title={tx('Imported time', '导入时间')}
+                              aria-label={tx('Imported time', '导入时间')}
                             >
-                              <span className="material-symbols-outlined !text-[13px]">auto_awesome</span>
-                              <span>{formatTimestamp(video.updated_at, language)}</span>
+                              <span className="material-symbols-outlined !text-[13px]">download</span>
+                              <span>{formatTimestamp(video.created_at, language)}</span>
                             </span>
-                          ) : null}
+                            {hasInterpretedTime ? (
+                              <span
+                                className="inline-flex items-center gap-1"
+                                title={tx('Last interpretation time', '最近解读时间')}
+                                aria-label={tx('Last interpretation time', '最近解读时间')}
+                              >
+                                <span className="material-symbols-outlined !text-[13px]">auto_awesome</span>
+                                <span>{formatTimestamp(video.updated_at, language)}</span>
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </button>
-                )
-              })}
-
-              {filteredVideos.length === 0 && (
-                <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">No resources yet.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="col-span-12 flex h-full flex-col overflow-hidden lg:col-span-9">
-            <div className="mb-3 flex shrink-0 items-center justify-between">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <h1
-                  className="min-w-0 flex-1 truncate text-2xl font-bold text-text-main dark:text-white"
-                  title={activeVideo?.title || ''}
-                >
-                  {activeVideo?.title || 'No resource selected'}
-                </h1>
-                <button
-                  onClick={() =>
-                    setShowAssistantPanel((v) => {
-                      const next = !v
-                      if (!next) setAssistantMaximized(false)
-                      return next
-                    })
-                  }
-                  title={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
-                  aria-label={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
-                  className="dark:border-white/15 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border-strong bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/70 dark:hover:text-white"
-                >
-                  <span className="material-symbols-outlined !text-[18px]">
-                    {showAssistantPanel ? 'right_panel_close' : 'right_panel_open'}
-                  </span>
-                </button>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <button
-                  onClick={() => setActiveTab('learn')}
-                  className={`rounded-full px-3 py-1.5 ${
-                    activeTab === 'learn'
-                      ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
-                      : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
-                  }`}
-                >
-                  Learn
-                </button>
-                <button
-                  onClick={() => setActiveTab('notes')}
-                  className={`rounded-full px-3 py-1.5 ${
-                    activeTab === 'notes'
-                      ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
-                      : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
-                  }`}
-                >
-                  Notes
-                </button>
-                <button
-                  onClick={() => setActiveTab('subtitle')}
-                  className={`rounded-full px-3 py-1.5 ${
-                    activeTab === 'subtitle'
-                      ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
-                      : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
-                  }`}
-                >
-                  Source Text
-                </button>
-              </div>
-            </div>
-
-            {shouldShowBatchPanel && (
-              <div className="mb-4 shrink-0 rounded-xl border border-border-strong bg-card px-4 py-3 text-sm text-text-main dark:border-white/10 dark:bg-[#111a33] dark:text-white/90">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">Background Import Task</p>
-                    <p className="text-xs text-text-muted dark:text-white/60">Batch #{batchSummary.id.slice(0, 8)}</p>
-                  </div>
-                  <span className="text-xs text-text-muted dark:text-white/60">Auto-refreshing</span>
-                </div>
-                <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
-                  <div>Total: {batchSummary.stats.total}</div>
-                  <div>Done：{batchSummary.stats.ready}</div>
-                  <div>Processing：{batchSummary.stats.processing}</div>
-                  <div>Failed：{batchSummary.stats.failed}</div>
-                </div>
-                <div className="mt-3 max-h-24 space-y-1 overflow-y-auto text-xs">
-                  {batchItems.slice(0, 8).map((item) => {
-                    const statusMeta = getVideoStatusMeta(item.status, language)
-                    return (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between rounded bg-black/5 px-2 py-1 dark:bg-white/5"
-                      >
-                        <span className="truncate pr-3">{item.title}</span>
-                        <span className={statusMeta.color}>{statusMeta.label}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {!assistantMaximized ? (
-              activeTab === 'learn' ? (
-                <div className="min-h-0 flex-1 overflow-hidden">{renderLearnPanel()}</div>
-              ) : activeTab === 'subtitle' ? (
-                <div className="min-h-0 flex-1 overflow-hidden">{renderSubtitlePanel()}</div>
-              ) : (
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
-                  <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
-                  <p className="mt-2 text-sm text-text-muted dark:text-white/60">
-                    Notes stay available. You can keep writing and organizing notes while videos process in background.
-                  </p>
-                </div>
-              )
-            ) : null}
-
-            {showAssistantPanel ? (
-              <div
-                className={`flex flex-col rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] ${
-                  assistantMaximized ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 shrink-0'
-                }`}
-              >
-                <div className="mb-3 flex shrink-0 items-center justify-between">
-                  <p className="text-sm font-semibold text-text-main dark:text-white">Ask follow-up</p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setAssistantMaximized((v) => !v)}
-                      title={assistantMaximized ? 'Minimize' : 'Maximize'}
-                      aria-label={assistantMaximized ? 'Minimize' : 'Maximize'}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded border border-border-strong text-text-muted hover:text-text-main dark:border-white/20 dark:text-white/70 dark:hover:text-white"
-                    >
-                      <span className="material-symbols-outlined !text-[16px]">
-                        {assistantMaximized ? 'close_fullscreen' : 'open_in_full'}
-                      </span>
                     </button>
+                  )
+                })}
+
+                {filteredVideos.length === 0 && (
+                  <div className="py-6 text-center text-sm text-text-muted dark:text-white/40">No resources yet.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="col-span-12 flex h-full flex-col overflow-hidden lg:col-span-9">
+              <div className="mb-3 flex shrink-0 items-center justify-between">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <h1
+                    className="min-w-0 flex-1 truncate text-2xl font-bold text-text-main dark:text-white"
+                    title={activeVideo?.title || ''}
+                  >
+                    {activeVideo?.title || 'No resource selected'}
+                  </h1>
+                  <button
+                    onClick={() =>
+                      setShowAssistantPanel((v) => {
+                        const next = !v
+                        if (!next) setAssistantMaximized(false)
+                        return next
+                      })
+                    }
+                    title={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                    aria-label={showAssistantPanel ? 'Hide AI Panel' : 'Show AI Panel'}
+                    className="dark:border-white/15 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border-strong bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/70 dark:hover:text-white"
+                  >
+                    <span className="material-symbols-outlined !text-[18px]">
+                      {showAssistantPanel ? 'right_panel_close' : 'right_panel_open'}
+                    </span>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    onClick={() => setActiveTab('learn')}
+                    className={`rounded-full px-3 py-1.5 ${
+                      activeTab === 'learn'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
+                        : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
+                    }`}
+                  >
+                    Learn
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('notes')}
+                    className={`rounded-full px-3 py-1.5 ${
+                      activeTab === 'notes'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
+                        : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
+                    }`}
+                  >
+                    Notes
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('subtitle')}
+                    className={`rounded-full px-3 py-1.5 ${
+                      activeTab === 'subtitle'
+                        ? 'bg-blue-500/20 text-blue-700 dark:text-blue-200'
+                        : 'bg-black/5 text-text-muted hover:text-text-main dark:bg-white/5 dark:text-white/60 dark:hover:text-white'
+                    }`}
+                  >
+                    Source Text
+                  </button>
+                </div>
+              </div>
+
+              {shouldShowBatchPanel && (
+                <div className="mb-4 shrink-0 rounded-xl border border-border-strong bg-card px-4 py-3 text-sm text-text-main dark:border-white/10 dark:bg-[#111a33] dark:text-white/90">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold">Background Import Task</p>
+                      <p className="text-xs text-text-muted dark:text-white/60">Batch #{batchSummary.id.slice(0, 8)}</p>
+                    </div>
+                    <span className="text-xs text-text-muted dark:text-white/60">Auto-refreshing</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                    <div>Total: {batchSummary.stats.total}</div>
+                    <div>Done：{batchSummary.stats.ready}</div>
+                    <div>Processing：{batchSummary.stats.processing}</div>
+                    <div>Failed：{batchSummary.stats.failed}</div>
+                  </div>
+                  <div className="mt-3 max-h-24 space-y-1 overflow-y-auto text-xs">
+                    {batchItems.slice(0, 8).map((item) => {
+                      const statusMeta = getVideoStatusMeta(item.status, language)
+                      return (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between rounded bg-black/5 px-2 py-1 dark:bg-white/5"
+                        >
+                          <span className="truncate pr-3">{item.title}</span>
+                          <span className={statusMeta.color}>{statusMeta.label}</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
+              )}
 
-                <div className={`${assistantMaximized ? 'min-h-0 flex-1' : 'max-h-48'} space-y-3 overflow-y-auto pr-1`}>
-                  {messages.length > 0
-                    ? messages.map((msg: any) => {
-                        const text = (
-                          msg.parts
-                            ?.filter((p: any) => p.type === 'text')
-                            .map((p: any) => p.text)
-                            .join('') ||
-                          msg.content ||
-                          ''
-                        ).trim()
-                        const toolParts = (msg.parts || []).filter((p: any) =>
-                          typeof p?.type === 'string' ? p.type.startsWith('tool-') : false,
-                        )
+              {!assistantMaximized ? (
+                activeTab === 'learn' ? (
+                  <div className="min-h-0 flex-1 overflow-hidden">{renderLearnPanel()}</div>
+                ) : activeTab === 'subtitle' ? (
+                  <div className="min-h-0 flex-1 overflow-hidden">{renderSubtitlePanel()}</div>
+                ) : (
+                  <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border-strong bg-card p-6 text-text-main dark:border-white/10 dark:bg-[#131b36] dark:text-white/80">
+                    <h2 className="text-xl font-semibold text-text-main dark:text-white">Notebook Notes</h2>
+                    <p className="mt-2 text-sm text-text-muted dark:text-white/60">
+                      Notes stay available. You can keep writing and organizing notes while videos process in
+                      background.
+                    </p>
+                  </div>
+                )
+              ) : null}
 
-                        return (
-                          <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            {msg.role === 'user' ? (
-                              <div className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-blue-600 px-3 py-2 text-sm text-white">
-                                {text}
-                              </div>
-                            ) : (
-                              <div className="flex max-w-[92%] items-start gap-2">
-                                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-strong bg-black/5 dark:border-white/20 dark:bg-white/10">
-                                  <img src="/logo.svg" alt="Professor AI" className="h-4 w-4 opacity-90" />
-                                </span>
-                                <div className="min-w-0 flex-1 space-y-2">
-                                  {toolParts.length > 0 ? (
-                                    <div className="space-y-1">
-                                      {toolParts.map((part: any, idx: number) => {
-                                        const state = String(part?.state || '')
-                                        const input = part?.input || part?.args || {}
-                                        const query =
-                                          typeof input?.query === 'string' ? input.query : JSON.stringify(input || {})
-                                        const statusLabel =
-                                          state === 'output-available'
-                                            ? 'Retrieval done'
-                                            : state === 'input-available'
-                                            ? 'Retrieving...'
-                                            : 'Tool running...'
-                                        return (
-                                          <div
-                                            key={`${msg.id}-tool-${idx}`}
-                                            className="dark:border-white/15 rounded-lg border border-border-strong bg-black/5 px-3 py-2 text-xs text-text-muted dark:bg-white/5 dark:text-white/70"
-                                          >
-                                            🔍 {statusLabel} {query ? `: ${query}` : ''}
-                                          </div>
-                                        )
-                                      })}
+              {showAssistantPanel ? (
+                <div
+                  className={`flex flex-col rounded-xl border border-border-strong bg-card p-4 dark:border-white/10 dark:bg-[#131b36] ${
+                    assistantMaximized ? 'min-h-0 flex-1 overflow-hidden' : 'mt-4 shrink-0'
+                  }`}
+                >
+                  <div className="mb-3 flex shrink-0 items-center justify-between">
+                    <p className="text-sm font-semibold text-text-main dark:text-white">Ask follow-up</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setAssistantMaximized((v) => !v)}
+                        title={assistantMaximized ? 'Minimize' : 'Maximize'}
+                        aria-label={assistantMaximized ? 'Minimize' : 'Maximize'}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded border border-border-strong text-text-muted hover:text-text-main dark:border-white/20 dark:text-white/70 dark:hover:text-white"
+                      >
+                        <span className="material-symbols-outlined !text-[16px]">
+                          {assistantMaximized ? 'close_fullscreen' : 'open_in_full'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`${assistantMaximized ? 'min-h-0 flex-1' : 'max-h-48'} space-y-3 overflow-y-auto pr-1`}
+                  >
+                    {messages.length > 0
+                      ? messages.map((msg: any) => {
+                          const text = (
+                            msg.parts
+                              ?.filter((p: any) => p.type === 'text')
+                              .map((p: any) => p.text)
+                              .join('') ||
+                            msg.content ||
+                            ''
+                          ).trim()
+                          const toolParts = (msg.parts || []).filter((p: any) =>
+                            typeof p?.type === 'string' ? p.type.startsWith('tool-') : false,
+                          )
+
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                            >
+                              {msg.role === 'user' ? (
+                                <div className="max-w-[85%] whitespace-pre-wrap rounded-xl bg-blue-600 px-3 py-2 text-sm text-white">
+                                  {text}
+                                </div>
+                              ) : (
+                                <div className="flex max-w-[92%] items-start gap-2">
+                                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border-strong bg-black/5 dark:border-white/20 dark:bg-white/10">
+                                    <img src="/logo.svg" alt="Professor AI" className="h-4 w-4 opacity-90" />
+                                  </span>
+                                  <div className="min-w-0 flex-1 space-y-2">
+                                    {toolParts.length > 0 ? (
+                                      <div className="space-y-1">
+                                        {toolParts.map((part: any, idx: number) => {
+                                          const state = String(part?.state || '')
+                                          const input = part?.input || part?.args || {}
+                                          const query =
+                                            typeof input?.query === 'string' ? input.query : JSON.stringify(input || {})
+                                          const statusLabel =
+                                            state === 'output-available'
+                                              ? 'Retrieval done'
+                                              : state === 'input-available'
+                                              ? 'Retrieving...'
+                                              : 'Tool running...'
+                                          return (
+                                            <div
+                                              key={`${msg.id}-tool-${idx}`}
+                                              className="dark:border-white/15 rounded-lg border border-border-strong bg-black/5 px-3 py-2 text-xs text-text-muted dark:bg-white/5 dark:text-white/70"
+                                            >
+                                              🔍 {statusLabel} {query ? `: ${query}` : ''}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : null}
+                                    <div className="markdown-body rounded-xl bg-black/5 px-3 py-2 text-sm text-slate-800 dark:bg-white/5 dark:text-slate-100">
+                                      <Markdown>{text}</Markdown>
                                     </div>
-                                  ) : null}
-                                  <div className="markdown-body rounded-xl bg-black/5 px-3 py-2 text-sm text-slate-800 dark:bg-white/5 dark:text-slate-100">
-                                    <Markdown>{text}</Markdown>
                                   </div>
                                 </div>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })
-                    : null}
-                  {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
-                  <div ref={bottomRef} />
-                </div>
+                              )}
+                            </div>
+                          )
+                        })
+                      : null}
+                    {isChatLoading ? <p className="text-xs text-text-muted dark:text-white/50">Thinking...</p> : null}
+                    <div ref={bottomRef} />
+                  </div>
 
-                <form onSubmit={handleAsk} className="mt-3 flex shrink-0 items-center gap-2">
-                  <textarea
-                    ref={chatInputRef}
-                    rows={1}
-                    value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value)
-                      autoResizeChatInput(e.currentTarget)
-                    }}
-                    onCompositionStart={() => setIsChatInputComposing(true)}
-                    onCompositionEnd={() => setIsChatInputComposing(false)}
-                    className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"
-                    placeholder={tx(
-                      'Ask a question; Enter to send, Shift+Enter for newline',
-                      '输入问题；Enter 发送，Shift+Enter 换行',
-                    )}
-                    onKeyDown={(e) => {
-                      const nativeEvt = e.nativeEvent as KeyboardEvent
-                      if (isChatInputComposing || nativeEvt.isComposing || nativeEvt.keyCode === 229) return
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        handleAsk()
-                      }
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isChatLoading || !input.trim()}
-                    className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            ) : null}
+                  <form onSubmit={handleAsk} className="mt-3 flex shrink-0 items-center gap-2">
+                    <textarea
+                      ref={chatInputRef}
+                      rows={1}
+                      value={input}
+                      onChange={(e) => {
+                        setInput(e.target.value)
+                        autoResizeChatInput(e.currentTarget)
+                      }}
+                      onCompositionStart={() => setIsChatInputComposing(true)}
+                      onCompositionEnd={() => setIsChatInputComposing(false)}
+                      className="dark:border-white/15 min-h-[40px] flex-1 resize-none rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:outline-none dark:bg-black/20 dark:text-white dark:placeholder:text-white/40"
+                      placeholder={tx(
+                        'Ask a question; Enter to send, Shift+Enter for newline',
+                        '输入问题；Enter 发送，Shift+Enter 换行',
+                      )}
+                      onKeyDown={(e) => {
+                        const nativeEvt = e.nativeEvent as KeyboardEvent
+                        if (isChatInputComposing || nativeEvt.isComposing || nativeEvt.keyCode === 229) return
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          handleAsk()
+                        }
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      disabled={isChatLoading || !input.trim()}
+                      className="rounded-md bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+                    >
+                      Send
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+            </div>
           </div>
         </main>
 
@@ -1768,7 +1887,12 @@ const NotebookDetail: NextPage = () => {
                         checked={importInterpretationMode === 'none'}
                         onChange={() => setImportInterpretationMode('none')}
                       />
-                      <span>{tx('Import only (no summary/interpretation)', '仅导入（不生成总结/解读）')}</span>
+                      <span>
+                        {tx(
+                          'Import only (keep source text only, no summary/interpretation)',
+                          '仅导入（仅保留原文/字幕，不生成总结或解读）',
+                        )}
+                      </span>
                     </label>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
@@ -1806,8 +1930,8 @@ const NotebookDetail: NextPage = () => {
                 {importNotice && <p className="text-sm text-green-600 dark:text-green-400">{importNotice}</p>}
                 <p className="text-xs text-text-muted dark:text-white/50">
                   {tx(
-                    'Import runs in background. Text/file defaults to import-only; you can switch to concise, detailed, or extract mode.',
-                    '导入会在后台执行。文本/文件默认仅导入；你也可以切换为简明、详细或提取模式。',
+                    'Import runs in background. URL video import also supports import-only mode: subtitles/source text will be kept, while summary/interpretation is skipped.',
+                    '导入会在后台执行。URL 视频导入也支持仅导入模式：保留字幕/原文，不生成总结或解读。',
                   )}
                 </p>
                 {importTab === 'url' ? (
@@ -1861,6 +1985,115 @@ const NotebookDetail: NextPage = () => {
                     )}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showEditNotebookModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-xl rounded-xl border border-border-strong bg-card p-6 text-text-main shadow-2xl dark:border-white/10 dark:bg-[#1a1a1b] dark:text-white">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{tx('Edit notebook', '编辑 Notebook')}</h3>
+                <button
+                  className="text-text-muted hover:text-text-main dark:text-white/60 dark:hover:text-white"
+                  onClick={() => {
+                    if (editingNotebook) return
+                    if (editNotebookCover?.previewUrl) URL.revokeObjectURL(editNotebookCover.previewUrl)
+                    setEditNotebookCover(null)
+                    setShowEditNotebookModal(false)
+                  }}
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <input
+                  value={editNotebookTitle}
+                  onChange={(e) => setEditNotebookTitle(e.target.value)}
+                  placeholder={tx('Notebook title', 'Notebook 标题')}
+                  className="h-10 w-full rounded-md border border-border-strong bg-white px-3 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                />
+                <textarea
+                  value={editNotebookDescription}
+                  onChange={(e) => setEditNotebookDescription(e.target.value)}
+                  placeholder={tx('Description (optional)', '描述（可选）')}
+                  rows={3}
+                  className="w-full rounded-md border border-border-strong bg-white px-3 py-2 text-sm text-text-main placeholder:text-text-muted focus:border-accent focus:outline-none dark:border-white/20 dark:bg-black/20 dark:text-white dark:placeholder:text-white/50"
+                />
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-text-main dark:text-white">
+                    {tx('Replace cover image (optional)', '替换封面图片（可选）')}
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={async (e) => {
+                      const inputEl = e.currentTarget
+                      const file = inputEl.files?.[0]
+                      if (!file) return
+                      try {
+                        if (editNotebookCover?.previewUrl) URL.revokeObjectURL(editNotebookCover.previewUrl)
+                        const upload = await readImageFileAsUpload(file)
+                        setEditNotebookCover(upload)
+                      } catch (error: any) {
+                        alert(
+                          isZh
+                            ? error?.message
+                                ?.replace(
+                                  'Unsupported cover image type. Only PNG, JPEG, and WebP are allowed.',
+                                  '封面图片格式不支持，仅支持 PNG、JPEG、WebP。',
+                                )
+                                ?.replace(
+                                  'Cover image is too large. Current limit is 8MB.',
+                                  '封面图片过大，当前限制为 8MB。',
+                                ) || '读取封面失败'
+                            : error?.message || 'Failed to read cover image',
+                        )
+                      } finally {
+                        inputEl.value = ''
+                      }
+                    }}
+                    className="block w-full text-sm text-text-main file:mr-3 file:rounded-md file:border-0 file:bg-accent/20 file:px-3 file:py-2 file:text-sm file:font-medium dark:text-white dark:file:bg-white/10"
+                  />
+                  {editNotebookCover ? (
+                    <div className="dark:border-white/15 overflow-hidden rounded-lg border border-border-strong">
+                      <img
+                        src={editNotebookCover.previewUrl}
+                        alt="Notebook cover preview"
+                        className="aspect-[16/9] w-full object-cover"
+                      />
+                    </div>
+                  ) : getNotebookCoverUrl(notebook) ? (
+                    <div className="dark:border-white/15 overflow-hidden rounded-lg border border-border-strong">
+                      <img
+                        src={getNotebookCoverUrl(notebook) || ''}
+                        alt="Current notebook cover"
+                        className="aspect-[16/9] w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    if (editingNotebook) return
+                    if (editNotebookCover?.previewUrl) URL.revokeObjectURL(editNotebookCover.previewUrl)
+                    setEditNotebookCover(null)
+                    setShowEditNotebookModal(false)
+                  }}
+                  className="rounded-lg border border-border-strong px-3 py-2 text-sm text-text-main hover:border-accent/70 dark:border-white/20 dark:text-white"
+                >
+                  {tx('Cancel', '取消')}
+                </button>
+                <button
+                  onClick={handleSaveNotebook}
+                  disabled={editingNotebook || !editNotebookTitle.trim()}
+                  className="rounded-lg bg-success px-4 py-2 text-sm font-semibold text-white hover:bg-success/90 disabled:opacity-50 dark:bg-primary dark:hover:bg-primary/90"
+                >
+                  {editingNotebook ? tx('Saving...', '保存中...') : tx('Save', '保存')}
+                </button>
               </div>
             </div>
           </div>

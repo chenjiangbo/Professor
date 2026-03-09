@@ -48,3 +48,9 @@ pnpm-lock.yaml
 
 # local credential files
 crafty-willow-469010-d3-a16f33a47583.json
+
+# local backups
+backups/
+
+# local generated notebook covers
+storage/

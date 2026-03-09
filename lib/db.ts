@@ -17,6 +17,9 @@ async function ensureTables() {
       id UUID PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT,
+      cover_url TEXT,
+      cover_status TEXT NOT NULL DEFAULT 'none',
+      cover_updated_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
@@ -168,6 +171,9 @@ async function ensureTables() {
   await pool.query("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS product_code TEXT NOT NULL DEFAULT 'professor'")
 
   await pool.query('ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS owner_user_id UUID')
+  await pool.query('ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS cover_url TEXT')
+  await pool.query("ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS cover_status TEXT NOT NULL DEFAULT 'none'")
+  await pool.query('ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS cover_updated_at TIMESTAMPTZ')
   await pool.query('CREATE INDEX IF NOT EXISTS idx_notebooks_owner_user_id ON notebooks(owner_user_id)')
 
   const adminUserIdsRaw = process.env.PROFESSOR_ADMIN_USER_IDS
