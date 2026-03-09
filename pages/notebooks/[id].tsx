@@ -1281,34 +1281,6 @@ const NotebookDetail: NextPage = () => {
         </header>
 
         <main className="flex flex-1 flex-col gap-4 overflow-hidden p-4">
-          {getNotebookCoverUrl(notebook) ? (
-            <section
-              className="relative shrink-0 overflow-hidden rounded-2xl border border-border-strong bg-card dark:border-white/10 dark:bg-white/5"
-              style={{
-                backgroundImage: `linear-gradient(135deg, rgba(7,12,23,0.18), rgba(7,12,23,0.58)), url("${getNotebookCoverUrl(
-                  notebook,
-                )}")`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
-            >
-              <div className="flex min-h-[180px] flex-col justify-end px-6 py-7 sm:min-h-[220px]">
-                <div className="max-w-3xl">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                    {tx('Notebook cover', 'Notebook 封面')}
-                  </p>
-                  <h1 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                    {notebook?.title || ''}
-                  </h1>
-                  {notebook?.description ? (
-                    <p className="text-white/85 mt-3 max-w-2xl text-sm leading-7 sm:text-base">
-                      {notebook.description}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </section>
-          ) : null}
           <div className="grid min-h-0 flex-1 grid-cols-12 gap-4 overflow-hidden">
             <div className="col-span-12 flex flex-col gap-4 overflow-hidden rounded-lg border border-border-strong bg-card p-4 shadow-[0_10px_30px_rgba(12,18,38,0.05)] dark:border-transparent dark:bg-white/5 dark:shadow-none lg:col-span-3">
               <div className="flex items-center justify-between">

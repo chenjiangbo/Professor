@@ -313,22 +313,22 @@ const Home: NextPage = () => {
                         e.stopPropagation()
                         openEditModal(notebook)
                       }}
-                      className="absolute right-12 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-sky-200 bg-sky-600 text-white opacity-0 shadow-sm transition hover:bg-sky-700 group-hover:opacity-100 dark:border-sky-400/40 dark:bg-sky-500 dark:hover:bg-sky-400"
+                      className="absolute right-11 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-sky-600 text-white opacity-0 shadow-sm transition hover:bg-sky-700 group-hover:opacity-100 dark:border-sky-400/40 dark:bg-sky-500 dark:hover:bg-sky-400"
                       title="Edit notebook"
                       aria-label="Edit notebook"
                     >
-                      <span className="material-symbols-outlined text-base">edit</span>
+                      <span className="material-symbols-outlined text-[18px]">edit</span>
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
                         handleDeleteNotebook(notebook.id, notebook.title)
                       }}
-                      className="absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-rose-600 text-white opacity-0 shadow-sm transition hover:bg-rose-700 group-hover:opacity-100 dark:border-rose-400/40 dark:bg-rose-500 dark:hover:bg-rose-400"
+                      className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-rose-600 text-white opacity-0 shadow-sm transition hover:bg-rose-700 group-hover:opacity-100 dark:border-rose-400/40 dark:bg-rose-500 dark:hover:bg-rose-400"
                       title="Delete notebook"
                       aria-label="Delete notebook"
                     >
-                      <span className="material-symbols-outlined text-base">delete</span>
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
                     </button>
                     <div
                       className="aspect-[16/9] w-full flex-shrink-0 rounded-t-xl bg-cover bg-center bg-no-repeat"
