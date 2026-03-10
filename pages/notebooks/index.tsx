@@ -317,7 +317,19 @@ const Home: NextPage = () => {
                       title="Edit notebook"
                       aria-label="Edit notebook"
                     >
-                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 21h4.75L19.81 8.94a1.5 1.5 0 0 0 0-2.12l-2.63-2.63a1.5 1.5 0 0 0-2.12 0L3 16.25V21Z" />
+                        <path d="m14.5 4.5 5 5" />
+                      </svg>
                     </button>
                     <button
                       onClick={(e) => {
@@ -328,7 +340,22 @@ const Home: NextPage = () => {
                       title="Delete notebook"
                       aria-label="Delete notebook"
                     >
-                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6V4.75A1.75 1.75 0 0 1 9.75 3h4.5A1.75 1.75 0 0 1 16 4.75V6" />
+                        <path d="M19 6v12.25A1.75 1.75 0 0 1 17.25 20h-10.5A1.75 1.75 0 0 1 5 18.25V6" />
+                        <path d="M10 10.25v5.5" />
+                        <path d="M14 10.25v5.5" />
+                      </svg>
                     </button>
                     <div
                       className="aspect-[16/9] w-full flex-shrink-0 rounded-t-xl bg-cover bg-center bg-no-repeat"
