@@ -46,13 +46,14 @@ export type VideoInterpretationResult = {
 
 type StageHook = (stage: 'outline' | 'explaining') => Promise<void> | void
 
+const INTERPRETATION_TRANSCRIPT_BYTE_LIMIT = 1000000
+
 function normalizeTranscript(input: string, mode: InterpretationMode) {
   const text = String(input || '')
     .replace(/\r/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
-  const byteLimit = mode === 'detailed' ? 90000 : 30000
-  return limitTranscriptByteLength(text, byteLimit)
+  return limitTranscriptByteLength(text, INTERPRETATION_TRANSCRIPT_BYTE_LIMIT)
 }
 
 function buildSummaryFromChapters(overview: string, chapters: GeneratedChapter[], language: AppLanguage) {

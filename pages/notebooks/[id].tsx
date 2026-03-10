@@ -332,7 +332,7 @@ const NotebookDetail: NextPage = () => {
   const tier = me?.tier || 'free'
   const importDailyLimit = tier === 'premium' ? null : tier === 'pro' ? 15 : 5
   const canExportZip = false
-  const transcriptByteLimit = 90000
+  const transcriptByteLimit = 1000000
   const textByteLength = getUtf8Length(textBodyInput.trim())
   const textWillTruncate = textByteLength > transcriptByteLimit
 
