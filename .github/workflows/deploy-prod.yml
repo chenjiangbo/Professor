@@ -34,6 +34,21 @@ jobs:
               exit 1
             fi
 
+            cat > /tmp/professor-vertex-service-account.json <<'VERTEX_SERVICE_ACCOUNT_JSON'
+            ${{ secrets.PROFESSOR_VERTEX_SERVICE_ACCOUNT_JSON }}
+            VERTEX_SERVICE_ACCOUNT_JSON
+            if [ -n "$(tr -d '[:space:]' < /tmp/professor-vertex-service-account.json)" ]; then
+              mv /tmp/professor-vertex-service-account.json crafty-willow-469010-d3-a16f33a47583.json
+              chmod 600 crafty-willow-469010-d3-a16f33a47583.json
+            else
+              rm -f /tmp/professor-vertex-service-account.json
+            fi
+
+            if [ ! -s crafty-willow-469010-d3-a16f33a47583.json ]; then
+              echo "Missing Vertex service account file and PROFESSOR_VERTEX_SERVICE_ACCOUNT_JSON is not configured." >&2
+              exit 1
+            fi
+
             if [ ! -d .git ]; then
               git init
               git remote add origin https://github.com/${{ github.repository }}.git
